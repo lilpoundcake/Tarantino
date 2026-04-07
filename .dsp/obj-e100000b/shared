@@ -1,0 +1,5 @@
+Layout — main dockable panel React component
+Model — layout model created from JSON
+TabNode, TabSetNode, BorderNode — node types for factory/render callbacks
+Actions, DockLocation — for programmatic tab management
+IJsonModel, ITabSetRenderValues — TypeScript types

@@ -1,0 +1,1 @@
+SequenceViewer — named-exported React component, accepts optional { initialChainId?: string } prop

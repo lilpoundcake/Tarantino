@@ -1,0 +1,3 @@
+source: src/components/ElementsTable.tsx
+kind: module
+purpose: Structure elements tree view — displays components grouped by category (polymers, ligands, ions, water, other) with expand/collapse, per-chain rows showing comp IDs and atom counts. Supports visibility toggling via Mol* setSubtreeVisibility and click-to-select-chain via MolScript queries. Subscribes to plugin hierarchy changes.

@@ -1,0 +1,3 @@
+source: (npm) @mui/material
+kind: external
+purpose: Material UI component library — provides layout (Box, AppBar, Toolbar), input (Button, IconButton, TextField, Select, MenuItem, FormControl), display (Typography, Chip, Paper, Tooltip, CircularProgress), data (Table, List, ListItemButton, Collapse), theming (ThemeProvider, CssBaseline, createTheme)

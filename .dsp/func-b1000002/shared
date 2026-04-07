@@ -1,0 +1,1 @@
+useSequenceSync() — React hook, no return value. Activated in App.tsx to enable sequence->structure direction of bidirectional sync.

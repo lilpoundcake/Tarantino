@@ -1,0 +1,3 @@
+source: src/components/SequenceViewer.tsx
+kind: module
+purpose: Displays amino acid sequence for the active chain — renders color-coded residue letters in monospace rows with block spacing and numbered ruler, supports click/drag range selection and hover, filters out water/ion chains, includes toolbar with chain selector, zoom-to-selection, clear, and residue class legend chips. Each instance manages its own local chain state.

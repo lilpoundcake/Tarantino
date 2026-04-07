@@ -1,0 +1,3 @@
+source: src/lib/molstar-helpers.ts
+kind: module
+purpose: Mol* API bridge — provides functions to query structures via MolScript, select/highlight/focus residues as Loci, extract chain/element/meta data from loaded structures, and select entire chains. Isolates Mol* deep-import complexity from components.

@@ -1,0 +1,3 @@
+source: src/hooks/useMolstarSync.ts
+kind: handler
+purpose: Structure-to-sequence sync — subscribes to Mol* lociSelects provider and hover behavior, reads selected residues from plugin.managers.structure.selection.entries, pushes to selectionStore with source='structure'. Uses source field to ignore changes originated from sequence side.

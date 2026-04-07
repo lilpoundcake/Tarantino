@@ -1,0 +1,3 @@
+TarantinoResidueColorThemeParams — empty param definition object
+TarantinoResidueColorTheme(ctx, props) — ColorTheme factory function
+TarantinoResidueColorThemeProvider — ColorTheme.Provider registered as 'tarantino-residue-type'

@@ -1,0 +1,6 @@
+obj-e1000001 — React StrictMode, Component (for ErrorBoundary class) and ReactNode type
+obj-e1000002 — createRoot for React 18+ DOM rendering
+obj-e1000009 — ThemeProvider, CssBaseline from @mui/material for MUI theming
+obj-a100000e — theme object for MUI ThemeProvider
+obj-a1000003 — Global CSS base resets and FlexLayout overrides
+obj-a1000002 — Root App component that contains the entire UI

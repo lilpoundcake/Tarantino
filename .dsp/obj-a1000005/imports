@@ -1,0 +1,5 @@
+obj-e1000001 — useCallback/useRef for file input ref and handlers
+obj-e1000009 — Button from @mui/material for upload trigger
+obj-e100000a — UploadFileIcon from @mui/icons-material
+obj-a100000a — structureStore to access plugin instance and set fileName/loading/error
+obj-a1000009 — selectionStore to clearSelection when loading new file

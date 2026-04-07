@@ -1,0 +1,3 @@
+source: src/molstar-theme.scss
+kind: resource
+purpose: Custom Mol* viewer SCSS skin — overrides molstar base/colors with app palette (#e8ecf1 background, #1a1a2e text, #4a76c4 accent), then imports base styles. Replaces the stock light.scss.

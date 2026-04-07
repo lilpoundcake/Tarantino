@@ -1,0 +1,3 @@
+source: src/index.css
+kind: resource
+purpose: Global stylesheet — base resets for html/body/#root full-viewport layout, FlexLayout cool gray-blue CSS variable overrides (tab colors, splitter, popups, font), and Mol* icon button outline suppression

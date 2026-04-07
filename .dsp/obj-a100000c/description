@@ -1,0 +1,3 @@
+source: src/lib/residue-codes.ts
+kind: module
+purpose: Amino acid code conversion and classification — maps 3-letter PDB residue codes (including non-canonical variants like CYX, HID, SEP, MSE) to 1-letter codes, converts back to canonical 3-letter, and classifies residues by chemical properties (hydrophobic, positive, negative, polar, special)

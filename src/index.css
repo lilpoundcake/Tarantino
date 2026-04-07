@@ -1,0 +1,91 @@
+/* Base */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* FlexLayout cool gray-blue overrides */
+
+.flexlayout__layout {
+  /* Core palette — everything derives from these */
+  --color-text: #1a1a2e;
+  --color-background: #eaeff4;
+  --color-base: #eaeff4;
+  --color-1: #e3e8ef;
+  --color-2: #dce2ea;
+  --color-3: #d3d9e3;
+  --color-4: #c9d1dc;
+  --color-5: #bfc8d4;
+  --color-6: #b5bfcc;
+
+  --color-drag1: #4a76c4;
+  --color-drag2: #5a9a5a;
+  --color-overflow: #5a607a;
+  --color-icon: #5a607a;
+
+  --color-tab-content: #eaeff4;
+  --color-tabset-background: #e3e8ef;
+  --color-tabset-background-selected: #dce2ea;
+  --color-tabset-header-background: #e3e8ef;
+  --color-tabset-divider-line: #c9d1dc;
+
+  --color-tab-selected: #1a1a2e;
+  --color-tab-selected-background: #f0f3f7;
+  --color-tab-unselected: #5a607a;
+  --color-tab-unselected-background: transparent;
+
+  --color-splitter: #d3d9e3;
+  --color-splitter-hover: #4a76c4;
+  --color-splitter-drag: #4a76c4;
+
+  --color-edge-marker: #4a76c4;
+  --color-drag-rect-border: #4a76c4;
+  --color-drag-rect: #1a1a2e;
+
+  --color-popup-border: #c9d1dc;
+  --color-popup-unselected: #5a607a;
+  --color-popup-unselected-background: #f0f3f7;
+  --color-popup-selected: #1a1a2e;
+  --color-popup-selected-background: #dce2ea;
+
+  --color-toolbar-button-hover: #d3d9e3;
+
+  --font-size: 11px;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  background-color: #e8ecf1;
+}
+
+.flexlayout__tab_button_content {
+  font-size: 11px;
+  font-weight: 500;
+  user-select: none;
+}
+
+.flexlayout__splitter:hover {
+  transition: background-color 150ms;
+}
+
+.flexlayout__tabset-maximized {
+  border: 2px solid #4a76c4;
+}
+
+.flexlayout__outline_rect {
+  border: 2px solid #4a76c4;
+  background: rgba(74, 118, 196, 0.08);
+}
+
+/* Remove outline/border from Mol* icon buttons on hover */
+.msp-plugin .msp-btn-icon:hover,
+.msp-plugin .msp-btn-icon-small:hover {
+  outline: none !important;
+}
+
+.msp-plugin .msp-btn-icon:focus,
+.msp-plugin .msp-btn-icon-small:focus {
+  outline: none !important;
+}
+

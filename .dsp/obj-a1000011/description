@@ -1,0 +1,3 @@
+source: src/components/StructureInfo.tsx
+kind: module
+purpose: Structure metadata display/editor — shows file name, editable fields (name, organism, method, resolution, notes) backed by structureStore.meta, plus summary stat cards (chains, residues, atoms, elements count)

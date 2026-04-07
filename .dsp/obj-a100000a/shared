@@ -1,0 +1,4 @@
+ChainInfo — interface { id, entityId, residues[] }
+ElementInfo — interface { chainId, entityId, entityType, moleculeName, compIds[], residueCount, atomCount }
+StructureMeta — interface { name, organism, method, resolution, description }
+useStructureStore — Zustand hook exposing: plugin, chains, elements, activeChainId, fileName, isLoading, error, meta, setPlugin(), setChains(), setElements(), setActiveChain(), setFileName(), setLoading(), setError(), setMeta(), reset()

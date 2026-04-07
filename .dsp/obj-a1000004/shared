@@ -1,0 +1,1 @@
+MolstarViewer — named-exported React component, no props. Uses ResizeObserver for panel resize handling.

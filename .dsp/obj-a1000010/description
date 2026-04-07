@@ -1,0 +1,3 @@
+source: src/components/InteractionsPanel.tsx
+kind: module
+purpose: Non-covalent & covalent interaction browser — computes H-bonds, ionic, pi-stacking, hydrophobic, halogen, metal-coordination, disulfide, and covalent bonds via Mol* computeInteractions + bond graph. Renders filterable MUI table with type chips, chain-pair filtering, click-to-focus, and bulk-focus toolbar.

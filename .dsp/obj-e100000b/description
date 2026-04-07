@@ -1,0 +1,3 @@
+source: (npm) flexlayout-react
+kind: external
+purpose: Dockable tab panel layout — provides Layout component, Model, TabNode, TabSetNode, Actions, DockLocation for creating IDE-like resizable/dockable panel grid. Includes light.css theme.

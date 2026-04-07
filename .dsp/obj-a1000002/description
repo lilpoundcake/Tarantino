@@ -1,0 +1,3 @@
+source: src/App.tsx
+kind: module
+purpose: Root component — uses flexlayout-react for a dockable multi-panel IDE layout. Renders MUI AppBar header with file name/loader, flexlayout grid with panels (3D viewer, sequence, elements, interactions, library, info). Supports adding panels via "+" button with MUI Menu. Activates bidirectional sync hooks.

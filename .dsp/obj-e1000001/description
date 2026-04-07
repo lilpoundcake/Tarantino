@@ -1,0 +1,3 @@
+source: (npm) react
+kind: external
+purpose: UI framework — provides component model, hooks (useState, useEffect, useRef, useCallback, memo), and StrictMode

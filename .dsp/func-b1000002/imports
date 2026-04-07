@@ -1,0 +1,4 @@
+obj-e1000001 — useEffect/useRef for subscription lifecycle
+obj-a100000a — structureStore to access plugin instance
+obj-a1000009 — selectionStore to subscribe to selection/hover changes
+obj-a100000b — selectResiduesInViewer, clearSelection, clearHighlight helpers for Mol* Loci operations

@@ -1,0 +1,3 @@
+source: src/components/StructureLibrary.tsx
+kind: module
+purpose: Structure file browser — fetches /structures/index.json, displays clickable list of available PDB/mmCIF files with name/organism/chain count, loads selected entry into Mol* plugin. Shows LOADED chip for active file.

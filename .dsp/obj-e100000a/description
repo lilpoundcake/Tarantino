@@ -1,0 +1,3 @@
+source: (npm) @mui/icons-material
+kind: external
+purpose: Material UI icon set — provides SVG React icon components for toolbar actions and panel indicators

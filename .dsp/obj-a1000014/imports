@@ -1,0 +1,1 @@
+(Node.js built-ins only — child_process.execSync, fs.existsSync, path.join/dirname, url.fileURLToPath)

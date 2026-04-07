@@ -1,0 +1,5 @@
+obj-e1000001 — useCallback/useEffect/useState for fetch lifecycle and loading state
+obj-e1000009 — List, ListItemButton, ListItemText, Typography, Chip, CircularProgress, Box, IconButton from @mui/material
+obj-e100000a — RefreshIcon, FolderOpenIcon from @mui/icons-material
+obj-a100000a — structureStore to access plugin, setFileName, setLoading, setError, fileName
+obj-a1000009 — selectionStore to clearSelection when loading new structure

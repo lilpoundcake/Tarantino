@@ -1,0 +1,3 @@
+source: (npm) zustand
+kind: external
+purpose: Lightweight state management — provides create() for defining stores with fine-grained subscriptions, avoids unnecessary re-renders during rapid hover events

@@ -1,0 +1,8 @@
+obj-e1000001 — useCallback/useRef/useEffect/useState for scroll-into-view, drag state, local chain state
+obj-e1000009 — Box, Typography, Chip, Tooltip, IconButton from @mui/material for toolbar and residue tooltips
+obj-e100000a — Deselect (ClearIcon), CenterFocusStrong (ZoomInIcon) from @mui/icons-material for toolbar
+obj-a100000a — structureStore to read chains, activeChainId, plugin
+obj-a1000009 — selectionStore to read/write selectedResidues, hoveredResidue, toggleSelect, selectRange, hover, clearSelection
+obj-a100000b — selectResiduesInViewer, focusResiduesInViewer for zoom-to-selection
+obj-a100000c — threeToOne, residueClass for code conversion and chemical class coloring
+obj-a1000008 — ChainSelector dropdown for multi-chain structures

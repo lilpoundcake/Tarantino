@@ -1,0 +1,7 @@
+obj-e1000001 — useState/useEffect/useCallback for state and lifecycle
+obj-e1000009 — Box, Typography, Chip, CircularProgress, IconButton, Tooltip, Table/TableBody/TableCell/TableContainer/TableHead/TableRow, FormControl, Select, MenuItem
+obj-e100000a — RefreshIcon, CenterFocusStrongIcon
+obj-a100000a — structureStore to read plugin instance and fileName
+obj-a100000b — selectResiduesInViewer, focusResiduesInViewer for 3D viewer interaction
+obj-a100000c — toCanonicalThree for normalizing non-standard residue codes
+obj-e1000003 — computeInteractions, InteractionType, interactionTypeLabel, StructureProperties, StructureElement, BondType, SyncRuntimeContext from molstar deep imports

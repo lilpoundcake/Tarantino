@@ -1,0 +1,2 @@
+obj-e1000003 — Color, ColorTheme, ThemeDataContext, ParamDefinition, StructureElement, Bond, Unit from molstar deep imports
+obj-a100000c — threeToOne for mapping 3-letter residue codes to 1-letter for color lookup

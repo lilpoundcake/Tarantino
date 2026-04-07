@@ -1,0 +1,6 @@
+ViewInArIcon, TextSnippetIcon, ListAltIcon, HubIcon, FolderIcon, InfoIcon — App panel menu
+UploadFileIcon — FileLoader
+RefreshIcon, CenterFocusStrongIcon — InteractionsPanel/StructureLibrary
+VisibilityIcon, VisibilityOffIcon, ExpandMoreIcon, ChevronRightIcon — ElementsTable
+Deselect (ClearIcon), CenterFocusStrong (ZoomInIcon) — SequenceViewer
+FolderOpenIcon — StructureLibrary

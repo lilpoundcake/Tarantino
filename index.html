@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tarantino - Protein Structure Viewer</title>
+  </head>
+  <body>
+    <div id="root"><div id="loading" style="padding:40px;font-family:monospace;color:#888">Loading Tarantino...</div></div>
+    <script type="module">
+      window.onerror = function(msg, src, line, col, err) {
+        document.getElementById('loading').innerHTML = '<h3 style="color:red">JS Error</h3><pre style="color:red;white-space:pre-wrap">' + msg + '\n' + src + ':' + line + ':' + col + '\n' + (err && err.stack || '') + '</pre>';
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        document.getElementById('loading').innerHTML = '<h3 style="color:red">Promise Error</h3><pre style="color:red;white-space:pre-wrap">' + (e.reason && e.reason.stack || e.reason) + '</pre>';
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

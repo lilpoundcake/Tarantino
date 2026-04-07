@@ -1,0 +1,1 @@
+ChainSelector — named-exported React component, props: { value?: string | null; onChange?: (chainId: string) => void }. Renders MUI Select or null if single chain.

@@ -1,0 +1,3 @@
+source: scripts/fix-native-deps.mjs
+kind: script
+purpose: Postinstall script — ensures correct platform-specific @rollup native binding is installed (macOS/Linux arm64/x64). Needed because npm sometimes skips optional native deps. Runs as npm postinstall hook.

@@ -1,0 +1,21 @@
+@use 'molstar/lib/mol-plugin-ui/skin/base/colors' with (
+    $default-background: #e8ecf1,
+    $font-color: #1a1a2e,
+    $hover-font-color: #4a76c4,
+    $entity-current-font-color: #4a76c4,
+    $msp-btn-remove-background: #c62828,
+    $msp-btn-remove-hover-font-color: #ffffff,
+    $msp-btn-commit-on-font-color: #4a76c4,
+    $entity-badge-font-color: #5a607a,
+
+    $log-message: #2e7d32,
+    $log-info: #7b1fa2,
+    $log-warning: #e68a00,
+    $log-error: #c62828,
+
+    $logo-background: #e8ecf1,
+
+    $color-adjust-sign: 1,
+);
+
+@use 'molstar/lib/mol-plugin-ui/skin/base/base';

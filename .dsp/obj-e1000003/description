@@ -1,0 +1,3 @@
+source: (npm) molstar
+kind: external
+purpose: 3D molecular visualization library — provides WebGL-based protein structure rendering, PDB/mmCIF parsing, MolScript query language, structure selection via Loci, interactivity managers. Used via deep imports (molstar/lib/mol-*).

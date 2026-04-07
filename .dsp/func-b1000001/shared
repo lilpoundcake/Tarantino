@@ -1,0 +1,1 @@
+useMolstarSync() — React hook, no return value. Activated in App.tsx to enable structure->sequence direction of bidirectional sync.

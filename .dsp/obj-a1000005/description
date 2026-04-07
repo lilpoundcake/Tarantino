@@ -1,0 +1,3 @@
+source: src/components/FileLoader.tsx
+kind: module
+purpose: Handles PDB/mmCIF file input via hidden file input + MUI Button — auto-detects format from extension, clears plugin and loads via builders.data.rawData pipeline with default preset. Rendered in App toolbar.

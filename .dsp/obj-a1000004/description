@@ -1,0 +1,3 @@
+source: src/components/MolstarViewer.tsx
+kind: module
+purpose: Wraps Mol* WebGL viewer — initializes PluginUIContext via createPluginUI with left-collapsed controls, registers TarantinoResidueColorTheme, sets white background, extracts chains/elements/meta on structure load, auto-hides water, recolors focus representations, handles ResizeObserver-based resize for flexlayout panels

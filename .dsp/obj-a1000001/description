@@ -1,0 +1,3 @@
+source: src/main.tsx
+kind: module
+purpose: Application entry point — mounts React root into DOM with StrictMode, wraps in ErrorBoundary and MUI ThemeProvider with CssBaseline for consistent Material UI styling

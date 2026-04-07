@@ -1,0 +1,6 @@
+obj-e1000001 — useEffect/useRef for lifecycle and DOM refs
+obj-e1000003 — createPluginUI, renderReact18, DefaultPluginUISpec, PluginConfig, PluginCommands, ColorNames from molstar
+obj-a100000f — custom Mol* SCSS skin (side-effect import replacing stock light.scss)
+obj-a1000013 — TarantinoResidueColorThemeProvider for registering custom residue color theme
+obj-a100000a — structureStore to publish plugin, chains, elements, meta, and errors via setPlugin/setChains/setElements/setMeta/setError
+obj-a100000b — extractChains, extractElements, extractMeta helpers to parse structure data

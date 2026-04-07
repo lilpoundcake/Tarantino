@@ -1,0 +1,3 @@
+source: src/stores/selectionStore.ts
+kind: module
+purpose: Zustand store for residue selection/hover state — tracks selectedResidues (Map keyed by "chainId:seqId") and hoveredResidue. Uses time-based _lock mechanism (expires after 200ms) instead of simple source field to prevent feedback loops in bidirectional sync. Supports selectRange for drag selection.

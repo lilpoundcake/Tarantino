@@ -1,0 +1,2 @@
+ResidueId — interface { chainId: string, seqId: number }
+useSelectionStore — Zustand hook exposing: selectedResidues (Map<string, ResidueId>), hoveredResidue, _lock, _lockTime, select(), toggleSelect(), selectRange(), hover(), clearSelection(), isLocked(by)

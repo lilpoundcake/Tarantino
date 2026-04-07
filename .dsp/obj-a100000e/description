@@ -1,0 +1,3 @@
+source: src/theme.ts
+kind: module
+purpose: MUI theme configuration — defines createTheme() with light palette (primary #4a76c4, secondary #7c5cbf), small dense component defaults for Button/Table/TextField/Chip/Tooltip, system font stack, 6px border radius

@@ -1,0 +1,3 @@
+source: (npm) react-dom
+kind: external
+purpose: DOM renderer — provides createRoot for React 18+ concurrent rendering

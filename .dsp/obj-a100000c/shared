@@ -1,0 +1,3 @@
+threeToOne(code) — converts 3-letter amino acid code to 1-letter (e.g., ALA -> A, CYX -> C), returns 'X' for unknown
+toCanonicalThree(code) — converts non-canonical 3-letter code to canonical (e.g., CYX -> CYS, HID -> HIS)
+residueClass(oneLetterCode) — returns chemical class string: 'hydrophobic' | 'positive' | 'negative' | 'polar' | 'special' | 'other'

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "1crn",
+    "file": "1crn.pdb",
+    "name": "Crambin",
+    "organism": "Crambe hispanica",
+    "chains": 1,
+    "residues": 46,
+    "description": "Small plant protein, classic X-ray crystallography target"
+  },
+  {
+    "id": "1ubq",
+    "file": "1ubq.pdb",
+    "name": "Ubiquitin",
+    "organism": "Homo sapiens",
+    "chains": 1,
+    "residues": 76,
+    "description": "Regulatory protein involved in protein degradation"
+  },
+  {
+    "id": "4hhb",
+    "file": "4hhb.pdb",
+    "name": "Hemoglobin",
+    "organism": "Homo sapiens",
+    "chains": 4,
+    "residues": 574,
+    "description": "Oxygen transport protein with 4 subunits (alpha2-beta2)"
+  },
+  {
+    "id": "1bna",
+    "file": "1bna.pdb",
+    "name": "B-DNA Dodecamer",
+    "organism": "Synthetic",
+    "chains": 2,
+    "residues": 24,
+    "description": "Classic B-form DNA double helix (CGCGAATTCGCG)"
+  }
+]

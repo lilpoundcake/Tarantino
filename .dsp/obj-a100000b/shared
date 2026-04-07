@@ -1,0 +1,12 @@
+ResidueId — interface { chainId, seqId }
+ChainData — interface { id, entityId, residues[] }
+ElementData — interface { chainId, entityId, entityType, moleculeName, compIds[], residueCount, atomCount }
+getFirstStructure(plugin) — retrieves loaded Structure from plugin hierarchy
+selectResiduesInViewer(plugin, residues, mode) — builds MolScript queries and applies select/highlight Loci
+focusResiduesInViewer(plugin, residues) — focuses residues to trigger ball-and-stick focus representation
+clearSelection(plugin) — deselects all in 3D viewer
+clearHighlight(plugin) — clears hover highlights in 3D viewer
+extractChains(plugin) — iterates structure units to extract chain IDs, entity IDs, and residue sequences
+extractElements(plugin) — extracts per-chain element info with entity type, comp IDs, atom/residue counts
+extractMeta(plugin) — extracts structure name from model entry ID
+selectChainInViewer(plugin, chainId) — selects and focuses an entire chain in the 3D viewer

@@ -1,0 +1,3 @@
+source: src/stores/structureStore.ts
+kind: module
+purpose: Zustand store for loaded structure metadata — holds the Mol* PluginUIContext instance, parsed chain data, element data (per-chain entity type/atom counts), active chain selection, file name, loading/error state, and editable StructureMeta (name, organism, method, resolution, description). Central hub connecting MolstarViewer to all panels.

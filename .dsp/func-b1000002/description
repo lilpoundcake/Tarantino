@@ -1,0 +1,3 @@
+source: src/hooks/useSequenceSync.ts
+kind: handler
+purpose: Sequence-to-structure sync — subscribes to selectionStore changes, builds MolScript queries via molstar-helpers, pushes Loci selections/highlights to Mol* viewer. Only acts when source='sequence' to prevent loops.

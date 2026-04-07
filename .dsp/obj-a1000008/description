@@ -1,0 +1,3 @@
+source: src/components/ChainSelector.tsx
+kind: module
+purpose: MUI Select dropdown for switching protein chains — filters out water/ion chains, controlled via value/onChange props (no longer writes to structureStore directly). Returns null if single chain.

@@ -1,0 +1,6 @@
+obj-e1000001 — useCallback/useState/useEffect for state and lifecycle
+obj-e1000009 — Box, Typography, IconButton, Collapse from @mui/material
+obj-e100000a — VisibilityIcon, VisibilityOffIcon, ExpandMoreIcon, ChevronRightIcon from @mui/icons-material
+obj-a100000a — structureStore to access plugin instance
+obj-a1000009 — selectionStore to clearSelection when selecting a chain
+obj-e1000003 — setSubtreeVisibility, StructureProperties, StructureElement, StructureSelection, QueryContext, MolScriptBuilder, compile, OrderedSet from molstar deep imports

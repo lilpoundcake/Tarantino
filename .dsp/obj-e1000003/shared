@@ -1,0 +1,9 @@
+createPluginUI, renderReact18, DefaultPluginUISpec — plugin initialization
+PluginUIContext — main plugin instance type
+PluginConfig — configuration constants
+StructureElement, StructureSelection, Structure, QueryContext — model types
+StructureProperties (SP) — property accessors for chain/residue/atom data
+MolScriptBuilder (MS) — query DSL builder
+compile — query compiler
+OrderedSet — indexed set for atom iteration
+InteractivityManager — loci selection/highlight providers

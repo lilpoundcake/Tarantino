@@ -1,0 +1,3 @@
+source: src/lib/residue-color-theme.ts
+kind: module
+purpose: Custom Mol* ColorTheme provider — colors carbon atoms by amino acid chemical class (hydrophobic green, positive blue, negative red, polar orange, cysteine yellow, aromatic teal, special pink) and non-carbon atoms by CPK element colors. Registered into Mol* colorThemeRegistry at plugin init.
