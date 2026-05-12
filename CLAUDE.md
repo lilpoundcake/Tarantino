@@ -21,7 +21,7 @@ Tarantino is a fully local browser-based protein structure viewer. It loads PDB/
 
 - **3D Structure**: Mol* molecular visualization with custom residue-type color theme
 - **Sequence**: amino acid sequence with color-coded residue types, drag-to-select, per-panel chain selection
-- **Elements**: tree view of structure components (polymers, ligands, ions, water) with visibility toggles
+- **Elements**: tree view of structure components (polymers, ligands, ions, water) with visibility toggles + per-chain **Show Interface** action
 - **Interactions**: computed table of H-bonds, ionic, cation-pi, pi-stacking, halogen, hydrophobic, metal coordination, disulfide, and covalent bonds with chain pair filter
 - **Library**: clickable list of pre-loaded structures from `structures/` folder
 - **Info**: editable metadata and structure summary stats
@@ -50,10 +50,10 @@ StructureLibrary ─┐
 FileLoader ───────┤→ Mol* plugin → extractChains/extractElements/extractMeta
                   │       ↓                    ↓
                   │  structureStore ──→ SequenceViewer, ElementsTable, InteractionsPanel
-                  │       ↕
-                  │  selectionStore (with _lock field to prevent loops)
-                  │       ↕
-                  └── MolstarViewer ← molstar-helpers (query builder, loci operations)
+                  │       ↕                    ↑
+                  │  selectionStore         focusedChainId/Category
+                  │       ↕                    │
+                  └── MolstarViewer ← molstar-helpers (queries, custom-tagged repr nodes)
 ```
 
 ### Structure Library
@@ -71,13 +71,35 @@ Mol* is initialized via `createPluginUI` with `renderReact18` in `MolstarViewer.
 - **Reading selection**: `plugin.managers.structure.selection.entries` (Map of `SelectionEntry` with `.selection` loci)
 - **Iterating atoms**: `OrderedSet.getAt()` / `OrderedSet.size()` (not array indexing -- Mol* uses custom ordered sets)
 - **Reading properties**: `StructureProperties.chain.label_asym_id(location)`, `.residue.label_seq_id(location)`, etc. -- all take a `StructureElement.Location`
-- **Focus representation**: `plugin.managers.structure.focus.setFromLoci()` triggers built-in ball-and-stick focus repr
+- **Custom-tagged representations** (NOT `focus.setFromLoci`): for "Show Interface" and Sequence-selection sticks, build state-tree nodes via `StateTransforms.Model.StructureSelectionFromBundle` + `StateTransforms.Representation.StructureRepresentation3D` with explicit tags. See `showSticksForLoci()` in `molstar-helpers.ts`.
 - **Visibility**: `setSubtreeVisibility()` from `molstar/lib/mol-plugin/behavior/static/state`
 - **Interactions computation**: `computeInteractions()` from `molstar/lib/mol-model-props/computed/interactions`
+- **Camera**: `plugin.managers.camera.focusSphere(Loci.getBoundingSphere(loci))`
+
+#### Why we avoid `focus.setFromLoci()` for our custom features
+
+Mol*'s `StructureFocusRepresentation` plugin behavior has two issues that make it unusable for arbitrary loci:
+
+1. **`focus.clear()` guard** — `focus.js` guards with `if (this.state.current)` and short-circuits if `state.current` is undefined. When `setFromLoci(loci)` is given a `combinator.merge` loci that fails Mol*'s `Loci.normalize`, `state.current` is never set, but the state-tree nodes still render. Subsequent `focus.clear()` calls become no-ops → green halo persists. The workaround is to push `undefined` directly onto `plugin.managers.structure.focus.behaviors.current` (used in `useMolstarSync` click handler and `useSequenceSync`).
+2. **`ensureShape` always creates surroundings** — the behavior unconditionally constructs a `SurrSel` sub-tree with `expandRadius` (default 5 Å, min 1 — `expandRadius: 0` is silently clamped). For "Show Interface" this rendered sticks for the whole chain interior since it's all within 5 Å of the surface.
+
+Our solution: bypass the focus manager. Build our own ball-and-stick representation state nodes tagged `tarantino-interface` or `tarantino-selection`, and delete by tag in `clearInterfaceFocus` / `clearSelectionSticks`.
+
+### Custom Tagged Representations (Show Interface + Selection Sticks)
+
+`src/lib/molstar-helpers.ts` exports:
+- `showSticksForLoci(plugin, loci, tag, label)` — shared builder. Adds `StructureSelectionFromBundle` + `StructureRepresentation3D` (ball-and-stick, **`xrayShaded: false`** for solid, not translucent) tagged with the given tag. Replaces any prior nodes carrying that tag.
+- `deleteCellsByTag(plugin, tag)` — selects via `StateSelection.Generators.root.subtree().withTag(tag)` and deletes.
+- `focusInterfaceForChain(plugin, chainId, category, radius=5)` — uses the contact MolScript (chain X residues within 5 Å of any non-self atom, ∪ partner-side residues within 5 Å of chain X), passes to `showSticksForLoci` with tag `tarantino-interface`, then `camera.focusSphere`.
+- `showSelectionSticks(plugin, residues)` / `clearSelectionSticks(plugin)` — same pattern, tag `tarantino-selection`. Called by `useSequenceSync` whenever sequence-selected residues change.
+
+**Entity-type-aware self detection.** `focusInterfaceForChain` takes a `category` argument (`polymer | ligand | ion | water | branched | other`). `entityTypeTest(category)` maps to MolScript `entity.type` test. The "self" MolScript test becomes `(label_asym_id == X) AND (entity.type == matchType)` so a polymer chain "A" and a ligand with chain id "A" are treated as distinct selves and as each other's partners. Without this, same-chain-id ligands would be hidden from the partner set.
 
 ### Custom Color Theme
 
-`src/lib/residue-color-theme.ts` registers a Mol* `ColorTheme.Provider` named `tarantino-residue-type`. Carbons are colored by residue type (hydrophobic=green, positive=blue, negative=red, polar=orange, cysteine=yellow, aromatic=teal, special=pink). Non-carbon atoms use CPK element colors. This theme is applied to focus representations (sticks) via a subscription on `plugin.managers.structure.focus.behaviors.current`.
+`src/lib/residue-color-theme.ts` registers a Mol* `ColorTheme.Provider` named `tarantino-residue-type`. Carbons are colored by residue type (hydrophobic=green, positive=blue, negative=red, polar=orange, cysteine=yellow, aromatic=teal, special=pink). Non-carbon atoms use CPK element colors. Applied to:
+- The default focus representation (via `MolstarViewer` subscription on `plugin.managers.structure.focus.behaviors.current` that updates target/surroundings repr nodes by tag)
+- Our custom-tagged sticks (`showSticksForLoci` passes `color: 'tarantino-residue-type'` to `createStructureRepresentationParams`)
 
 ### Custom Mol* SCSS Skin
 
@@ -96,14 +118,32 @@ When a structure loads, `MolstarViewer` subscribes to hierarchy changes and:
 
 ### Sync Hooks
 
-- `useMolstarSync` (structure → sequence): registers a `LociMarkProvider` via `addProvider`/`removeProvider` on `lociSelects`, and subscribes to `plugin.behaviors.interaction.hover`
-- `useSequenceSync` (sequence → structure): subscribes to `selectionStore` changes, pushes Loci operations to Mol*
+- `useMolstarSync` (structure → sequence):
+  - Registers a `LociMarkProvider` via `addProvider`/`removeProvider` on `lociSelects`. The provider is **wrapped in try/catch** and has **no re-entrant side-effects** (no `focus.clear` from inside it), so a throw in our provider never breaks the next provider in the chain (which is the default canvas3d marker provider that paints the green halo).
+  - Subscribes to `plugin.behaviors.interaction.hover` (debounced 50 ms).
+  - Subscribes to `plugin.behaviors.interaction.click`. On empty click (`Loci.isEmpty`): `lociSelects.deselectAll()`, `clearHighlights()`, push `undefined` to `focus.behaviors.current`, `focus.clear()`, `clearInterfaceFocus`, `clearSelectionSticks`, `setFocusedChain(null)`. This is the only reliable place to dismiss the green halo — see "Why we avoid `focus.setFromLoci`" above.
 
-Both hooks are activated in `App.tsx`. Hover sync is debounced at 50ms. The `selectionStore._lock` field (expires after 200ms) prevents infinite update loops between the two sync directions.
+- `useSequenceSync` (sequence → structure): subscribes to `selectionStore` changes. When `_lock === 'sequence'`, async:
+  1. `clearSelection(plugin)` — `lociSelects.deselectAll`
+  2. Push `undefined` to `focus.behaviors.current` + `focus.clear()`
+  3. `await clearInterfaceFocus(plugin)` — must complete before painting new selection or translucent leftover sticks would overlap
+  4. `setFocusedChain(null)`
+  5. If non-empty: `selectResiduesInViewer` (cartoon halo) + `await showSelectionSticks(plugin, residues)` (solid ball-and-stick)
+  6. If empty: `clearSelectionSticks`
+
+Hover sync is debounced at 50 ms. The `selectionStore._lock` field (expires after 200 ms) prevents infinite update loops between the two sync directions.
 
 ### Interactions Panel
 
 `InteractionsPanel.tsx` uses Mol*'s `computeInteractions()` to find non-covalent contacts (H-bonds, ionic, cation-pi, pi-stacking, halogen, hydrophobic, metal coordination). It also scans `structure.interUnitBonds` and intra-unit bonds for disulfide bridges and inter-chain covalent bonds. Results are deduplicated and displayed in a filterable table with chain pair dropdowns. Water interactions are excluded. Clicking a row focuses/zooms the 3D view to those residues.
+
+When `structureStore.focusedChainId` is set (via Elements panel "Show Interface" button), the table auto-filters to rows involving that chain, and a banner shows per-partner contact counts: `Interface: polymer chain A · 24 contacts · ↔ B (12) ↔ C (3) ↔ D (9) · [Clear]`. The banner label includes `focusedCategory` so polymer/ligand/etc. ambiguity is visible.
+
+### Empty 3D Click Behavior
+
+Default Mol* `clickDeselectAllOnEmpty` requires `selectionMode === true` (false by default), so Mol* does NOT auto-clear `lociSelects` on empty click. We handle this manually via `plugin.behaviors.interaction.click.subscribe` in `useMolstarSync`. The check is `Loci.isEmpty(event.current.loci)` — NOT `isEmptyLoci(loci)` — because Mol* fires a `StructureElement.Loci` with empty `elements` array (not the `EmptyLoci` singleton).
+
+The sequence panel's stored selection (`selectionStore.selectedResidues`) is NOT cleared on empty 3D click — sequence highlights remain in place. Empty 3D click clears only the 3D-side state.
 
 ## Key Constraints
 
@@ -119,7 +159,7 @@ Both hooks are activated in `App.tsx`. Hover sync is debounced at 50ms. The `sel
 
 ```
 src/
-  App.tsx                      # Root: flexlayout-react Layout, panel factory, "+" menu
+  App.tsx                      # Root: flexlayout-react Layout, panel factory, "+" menu, Esc handler
   main.tsx                     # Entry: MUI ThemeProvider, CssBaseline, ErrorBoundary
   theme.ts                     # MUI createTheme (light palette, compact sizing)
   index.css                    # FlexLayout CSS variable overrides, Mol* button fixes
@@ -130,21 +170,21 @@ src/
     SequenceViewer.tsx          # Monospace residue grid, drag-select, per-instance chain
     StructureLibrary.tsx        # Fetches /structures/index.json, loads on click
     StructureInfo.tsx           # Editable metadata fields + summary stats
-    ElementsTable.tsx           # Categorized tree (polymer/ligand/ion/water) with visibility
-    InteractionsPanel.tsx       # Computed interactions table with type/chain filters
+    ElementsTable.tsx           # Categorized tree, visibility toggles, "Show Interface" button
+    InteractionsPanel.tsx       # Computed interactions, type/chain filters, focused-chain banner
     FileLoader.tsx              # Upload button for local PDB/mmCIF files
     ChainSelector.tsx           # Chain dropdown, filters out water/ions
 
   hooks/
-    useMolstarSync.ts           # 3D → sequence sync (LociMarkProvider + hover)
-    useSequenceSync.ts          # Sequence → 3D sync (selectionStore subscriber)
+    useMolstarSync.ts           # 3D → sequence sync (LociMarkProvider + hover + empty-click)
+    useSequenceSync.ts          # Sequence → 3D sync (cartoon halo + solid sticks)
 
   stores/
-    structureStore.ts           # Zustand: plugin instance, chains, elements, meta, loading
+    structureStore.ts           # Zustand: plugin, chains, elements, meta, focusedChainId+Category
     selectionStore.ts           # Zustand: selected/hovered residues, lock mechanism
 
   lib/
-    molstar-helpers.ts          # MolScript query builders, loci operations, data extractors
+    molstar-helpers.ts          # MolScript builders, custom tagged repr (showSticksForLoci), extractors
     residue-codes.ts            # 3-to-1 letter code mapping (incl. non-canonical), residue classes
     residue-color-theme.ts      # Mol* ColorTheme: carbons by residue type, others CPK
 

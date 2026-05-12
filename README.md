@@ -6,9 +6,9 @@ Local tool for working with protein structures. Runs in your browser, no server 
 
 - **3D viewer** -- interactive molecular visualization powered by [Mol*](https://molstar.org) with custom residue-type coloring
 - **Sequence viewer** -- amino acid sequence with color-coded residue types, click or drag to select ranges
-- **Bidirectional selection** -- click a residue in sequence, it highlights in 3D and vice versa
-- **Elements tree** -- hierarchical view of polymers, ligands, ions, and water with visibility toggles
-- **Interactions table** -- computed H-bonds, ionic, disulfide, hydrophobic, pi-stacking, and more with chain pair filtering
+- **Bidirectional selection** -- click a residue in sequence, it highlights in 3D (solid ball-and-stick) and vice versa
+- **Elements tree** -- hierarchical view of polymers, ligands, ions, and water with visibility toggles + per-chain **Show Interface** button (analyses 5 Å contacts with other chains, distinguishes polymer vs ligand on the same chain id)
+- **Interactions table** -- computed H-bonds, ionic, disulfide, hydrophobic, pi-stacking, and more with chain pair filtering; auto-filters when Show Interface is active and shows per-partner contact counts
 - **Structure library** -- sidebar with pre-loaded structures, click to open
 - **Dockable panels** -- drag panels to rearrange, "+" button to duplicate any panel into any tabset
 - **Local files** -- upload your own .pdb or .mmcif files
@@ -84,9 +84,11 @@ Refresh the browser and it appears in the Library panel.
 | Select residue (seq)   | Click a letter in the Sequence panel           |
 | Select range (seq)     | Click and drag across residues                 |
 | Toggle element visibility | Click the eye icon in the Elements panel    |
+| Show Interface          | Click the network/hub icon next to a chain in Elements (zooms to 5 Å contact zone, filters Interactions) |
 | Focus interaction       | Click a row in the Interactions panel          |
 | Duplicate a panel      | Click "+" on any tabset header                 |
-| Clear selection         | Press Escape                                   |
+| Clear 3D markers        | Tap empty space in 3D (sequence selection stays) |
+| Clear everything        | Press Escape                                   |
 
 ## Build for production
 

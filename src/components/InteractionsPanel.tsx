@@ -6,6 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
+import HubIcon from '@mui/icons-material/Hub'
 import Tooltip from '@mui/material/Tooltip'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
@@ -65,6 +66,9 @@ const WATER_COMPS = new Set(['HOH', 'WAT', 'DOD', 'H2O'])
 export function InteractionsPanel() {
   const plugin = useStructureStore((s) => s.plugin)
   const fileName = useStructureStore((s) => s.fileName)
+  const focusedChainId = useStructureStore((s) => s.focusedChainId)
+  const focusedCategory = useStructureStore((s) => s.focusedCategory)
+  const setFocusedChain = useStructureStore((s) => s.setFocusedChain)
   const [rows, setRows] = useState<InteractionRow[]>([])
   const [loading, setLoading] = useState(false)
   const [chainPairA, setChainPairA] = useState<string>('') // '' = any
@@ -346,8 +350,25 @@ export function InteractionsPanel() {
       const matchReverse = (!a || r.chainB === a) && (!b || r.chainA === b)
       if (!matchForward && !matchReverse) return false
     }
+    if (focusedChainId && r.chainA !== focusedChainId && r.chainB !== focusedChainId) {
+      return false
+    }
     return true
   })
+
+  // Per-partner contact counts when an interface is focused
+  const partnerCounts = (() => {
+    if (!focusedChainId) return null
+    const counts = new Map<string, number>()
+    for (const r of rows) {
+      if (r.chainA === focusedChainId && r.chainB !== focusedChainId) {
+        counts.set(r.chainB, (counts.get(r.chainB) ?? 0) + 1)
+      } else if (r.chainB === focusedChainId && r.chainA !== focusedChainId) {
+        counts.set(r.chainA, (counts.get(r.chainA) ?? 0) + 1)
+      }
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
+  })()
 
   const focusAllFiltered = useCallback(() => {
     if (!plugin || filteredRows.length === 0) return
@@ -452,6 +473,47 @@ export function InteractionsPanel() {
           </>
         )}
       </Box>
+
+      {focusedChainId && partnerCounts && (
+        <Box sx={{
+          px: 1, py: 0.5, borderBottom: 1, borderColor: 'divider',
+          display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap',
+          bgcolor: 'action.hover',
+        }}>
+          <HubIcon sx={{ fontSize: 14, color: 'primary.main' }} />
+          <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>
+            Interface: {focusedCategory ? `${focusedCategory} ` : ''}chain {focusedChainId}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>
+            · {filteredRows.length} contact{filteredRows.length !== 1 ? 's' : ''}
+          </Typography>
+          {partnerCounts.length > 0 && (
+            <>
+              <Box sx={{ width: '1px', height: 12, bgcolor: 'divider', mx: 0.25 }} />
+              {partnerCounts.map(([partner, count]) => (
+                <Chip
+                  key={partner}
+                  label={`↔ ${partner} (${count})`}
+                  size="small"
+                  sx={{ height: 16, fontSize: '0.6rem', fontWeight: 600, '& .MuiChip-label': { px: 0.5 } }}
+                />
+              ))}
+            </>
+          )}
+          <Box sx={{ flex: 1 }} />
+          <Typography
+            component="span"
+            variant="caption"
+            onClick={() => setFocusedChain(null)}
+            sx={{
+              cursor: 'pointer', fontSize: '0.65rem', color: 'primary.main',
+              textDecoration: 'underline', '&:hover': { opacity: 0.7 },
+            }}
+          >
+            Clear
+          </Typography>
+        </Box>
+      )}
 
       <TableContainer sx={{ flex: 1 }}>
         <Table size="small" stickyHeader>

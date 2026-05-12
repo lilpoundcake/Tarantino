@@ -5,6 +5,9 @@ import {
   selectResiduesInViewer,
   clearSelection,
   clearHighlight,
+  clearInterfaceFocus,
+  showSelectionSticks,
+  clearSelectionSticks,
 } from '../lib/molstar-helpers'
 
 export function useSequenceSync() { // @dsp func-b1000002
@@ -18,12 +21,27 @@ export function useSequenceSync() { // @dsp func-b1000002
       if (state._lock !== 'sequence') return
 
       if (state.selectedResidues !== prevState.selectedResidues) {
-        clearSelection(plugin)
-        plugin.managers.structure.focus.clear()
-        const residues = Array.from(state.selectedResidues.values())
-        if (residues.length > 0) {
-          selectResiduesInViewer(plugin, residues, 'select')
-        }
+        // Async: delete prior interface/selection state nodes first, then
+        // paint the new selection (cartoon halo + solid ball-and-stick).
+        ;(async () => {
+          clearSelection(plugin)
+          plugin.managers.structure.focus.behaviors.current.next(undefined)
+          plugin.managers.structure.focus.clear()
+          try {
+            await clearInterfaceFocus(plugin)
+          } catch {}
+          useStructureStore.getState().setFocusedChain(null)
+          const residues = Array.from(state.selectedResidues.values())
+          if (residues.length > 0) {
+            // 1. Cartoon halo (green outline) via lociSelects
+            selectResiduesInViewer(plugin, residues, 'select')
+            // 2. Solid ball-and-stick sticks for the selected residues
+            try { await showSelectionSticks(plugin, residues) } catch {}
+          } else {
+            // Empty selection — also remove any leftover sticks
+            try { await clearSelectionSticks(plugin) } catch {}
+          }
+        })()
       }
 
       if (state.hoveredResidue !== prevState.hoveredResidue) {

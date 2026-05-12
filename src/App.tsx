@@ -113,6 +113,7 @@ const layoutJson: IJsonModel = {
 
 function App() { // @dsp obj-a1000002
   const modelRef = useRef(Model.fromJson(layoutJson))
+  const plugin = useStructureStore((s) => s.plugin)
   const isLoading = useStructureStore((s) => s.isLoading)
   const error = useStructureStore((s) => s.error)
   const fileName = useStructureStore((s) => s.fileName)
@@ -126,11 +127,25 @@ function App() { // @dsp obj-a1000002
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') clearSelection()
+      if (e.key === 'Escape') {
+        clearSelection()
+        if (plugin) {
+          plugin.managers.interactivity.lociSelects.deselectAll()
+          plugin.managers.interactivity.lociHighlights.clearHighlights()
+          plugin.managers.structure.focus.behaviors.current.next(undefined)
+          plugin.managers.structure.focus.clear()
+          // Also remove "Show Interface" and sequence-selection sticks
+          import('./lib/molstar-helpers').then(m => {
+            m.clearInterfaceFocus(plugin).catch(() => {})
+            m.clearSelectionSticks(plugin).catch(() => {})
+          }).catch(() => {})
+          useStructureStore.getState().setFocusedChain(null)
+        }
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [clearSelection])
+  }, [clearSelection, plugin])
 
   const factory = useCallback((node: TabNode) => {
     switch (node.getComponent()) {

@@ -3,10 +3,12 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import Collapse from '@mui/material/Collapse'
+import Tooltip from '@mui/material/Tooltip'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import HubIcon from '@mui/icons-material/Hub'
 import { useStructureStore } from '../stores/structureStore'
 import { useSelectionStore } from '../stores/selectionStore'
 import { setSubtreeVisibility } from 'molstar/lib/mol-plugin/behavior/static/state'
@@ -14,6 +16,7 @@ import { StructureProperties as SP, StructureElement, StructureSelection, QueryC
 import { MolScriptBuilder as MS } from 'molstar/lib/mol-script/language/builder'
 import { compile } from 'molstar/lib/mol-script/runtime/query/compiler'
 import { OrderedSet } from 'molstar/lib/mol-data/int'
+import { focusInterfaceForChain, clearInterfaceFocus } from '../lib/molstar-helpers'
 
 interface ChainItem {
   chainId: string
@@ -152,6 +155,22 @@ export function ElementsTable() {
   }, [plugin, components])
 
   const clearStoreSelection = useSelectionStore((s) => s.clearSelection)
+  const focusedChainId = useStructureStore((s) => s.focusedChainId)
+  const focusedCategory = useStructureStore((s) => s.focusedCategory)
+  const setFocusedChain = useStructureStore((s) => s.setFocusedChain)
+
+  const handleInterfaceClick = useCallback((chainId: string, category: string) => {
+    if (!plugin) return
+    const isActive = focusedChainId === chainId && focusedCategory === category
+    if (isActive) {
+      setFocusedChain(null)
+      clearInterfaceFocus(plugin).catch(err => console.warn('[interface] clear failed:', err))
+      return
+    }
+    setFocusedChain(chainId, category)
+    focusInterfaceForChain(plugin, chainId, category, 5)
+      .catch(err => console.warn('[interface] focus failed:', err))
+  }, [plugin, focusedChainId, focusedCategory, setFocusedChain])
 
   const selectChainInComponent = useCallback((ref: string, chainId: string) => {
     if (!plugin) return
@@ -292,6 +311,40 @@ export function ElementsTable() {
                       }}>
                         {chain.residueCount} res · {chain.atomCount.toLocaleString()}
                       </Typography>
+                      {(() => {
+                        const isActive = focusedChainId === chain.chainId && focusedCategory === cat
+                        const tooltipLabel = isActive
+                          ? 'Clear interface focus'
+                          : `Show interface for ${cat} chain ${chain.chainId} (5 Å)`
+                        return (
+                          <Tooltip title={tooltipLabel} placement="top">
+                            <IconButton
+                              size="small"
+                              onClick={(e) => { e.stopPropagation(); handleInterfaceClick(chain.chainId, cat) }}
+                              sx={isActive
+                                ? {
+                                    p: 0.25, ml: 0.5,
+                                    bgcolor: 'primary.main',
+                                    color: 'primary.contrastText',
+                                    border: '1px solid',
+                                    borderColor: 'primary.main',
+                                    boxShadow: '0 0 0 2px rgba(74, 118, 196, 0.25)',
+                                    '&:hover': { bgcolor: 'primary.dark' },
+                                  }
+                                : {
+                                    p: 0.25, ml: 0.5,
+                                    color: 'text.secondary',
+                                    bgcolor: 'transparent',
+                                    border: '1px solid transparent',
+                                    '&:hover': { color: 'primary.main', bgcolor: 'action.hover' },
+                                  }
+                              }
+                            >
+                              <HubIcon sx={{ fontSize: 13 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )
+                      })()}
                     </Box>
                   ))}
                 </Box>

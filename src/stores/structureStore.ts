@@ -37,6 +37,10 @@ interface StructureState {
   isLoading: boolean
   error: string | null
   meta: StructureMeta
+  /** Chain currently inspected via the Elements interface action. Filters InteractionsPanel. */
+  focusedChainId: string | null
+  /** Entity category of the focused chain ('polymer' | 'ligand' | 'ion' | 'water' | 'other'). */
+  focusedCategory: string | null
 
   setPlugin: (plugin: PluginUIContext | null) => void
   setChains: (chains: ChainInfo[]) => void
@@ -46,6 +50,7 @@ interface StructureState {
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   setMeta: (meta: Partial<StructureMeta>) => void
+  setFocusedChain: (chainId: string | null, category?: string | null) => void
   reset: () => void
 }
 
@@ -66,6 +71,8 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
   isLoading: false,
   error: null,
   meta: { ...defaultMeta },
+  focusedChainId: null,
+  focusedCategory: null,
 
   setPlugin: (plugin) => set({ plugin }),
   setChains: (chains) => {
@@ -80,6 +87,10 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
   setMeta: (partial) => set({ meta: { ...get().meta, ...partial } }),
+  setFocusedChain: (chainId, category = null) => set({
+    focusedChainId: chainId,
+    focusedCategory: chainId === null ? null : category,
+  }),
   reset: () => set({
     chains: [],
     elements: [],
@@ -88,5 +99,7 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
     isLoading: false,
     error: null,
     meta: { ...defaultMeta },
+    focusedChainId: null,
+    focusedCategory: null,
   }),
 }))
