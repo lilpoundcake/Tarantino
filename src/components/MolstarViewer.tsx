@@ -118,8 +118,16 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
         if (isPrimary) {
           setChains(chains)
           setElements(extractElements(pluginRef.current))
-          const meta = extractMeta(pluginRef.current)
-          setMeta({ name: meta.name, method: meta.method })
+          // Auto-extracted name/method are FALLBACKS — only set if the
+          // library entry didn't already populate them. We read the
+          // current store meta via getState() to compare without
+          // re-triggering selectors.
+          const extracted = extractMeta(pluginRef.current)
+          const current = useStructureStore.getState().meta
+          const patch: Partial<{ name: string; method: string }> = {}
+          if (!current.name && extracted.name) patch.name = extracted.name
+          if (!current.method && extracted.method) patch.method = extracted.method
+          if (Object.keys(patch).length > 0) setMeta(patch)
         } else {
           setSecondaryChains(chains)
         }

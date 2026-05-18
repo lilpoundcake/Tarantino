@@ -19,6 +19,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
+import { useStructureStore } from '../stores/structureStore'
 
 // Re-declare the spec types here (mirrors server/dvbfixer-spec.ts) so the
 // frontend doesn't have to import server/. The actual spec is fetched at
@@ -143,8 +144,9 @@ export function DVBFixerPanel() {
       } else {
         setResult(body as RunResult)
       }
-      // Refresh library so new output appears
+      // Refresh local input list + notify other components (Library) to refetch
       setTimeout(refreshStructures, 200)
+      useStructureStore.getState().bumpLibraryVersion()
     } catch (e: any) {
       setError(e.message ?? String(e))
     } finally {

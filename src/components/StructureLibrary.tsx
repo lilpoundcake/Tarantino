@@ -61,17 +61,9 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
     return { roots, byParent }
   }, [entries])
 
-  // Auto-expand parents that have a newly loaded structure (e.g. after a
-  // fresh DVBFixer run) so the new child is immediately visible.
-  useEffect(() => {
-    setExpanded(prev => {
-      const next = new Set(prev)
-      for (const parent of tree.byParent.keys()) {
-        next.add(parent)
-      }
-      return next
-    })
-  }, [tree])
+  // Everything starts collapsed. Users explicitly open parents via the
+  // chevron — we DO NOT auto-expand when new children appear (the chevron
+  // changes appearance to indicate children, which is enough hint).
 
   const toggleExpanded = useCallback((file: string) => {
     setExpanded(prev => {
@@ -88,6 +80,7 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
   const setLoadTargetSlot = useStructureStore((s) => s.setLoadTargetSlot)
   const setFileName = useStructureStore((s) => s.setFileName)
   const setSecondaryFileName = useStructureStore((s) => s.setSecondaryFileName)
+  const setMeta = useStructureStore((s) => s.setMeta)
   const setStoreLoading = useStructureStore((s) => s.setLoading)
   const setStoreError = useStructureStore((s) => s.setError)
   const fileName = useStructureStore((s) => s.fileName)
@@ -107,7 +100,10 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
     }
   }, [])
 
-  useEffect(() => { fetchIndex() }, [fetchIndex])
+  // Re-fetch on mount AND whenever something bumps libraryVersion
+  // (meta edit, star toggle, DVBFixer run, file deletion, etc).
+  const libraryVersion = useStructureStore((s) => s.libraryVersion)
+  useEffect(() => { fetchIndex() }, [fetchIndex, libraryVersion])
 
   // Find a starred descendant of `entry`. If found, that's what we load
   // when the user clicks `entry` (the family root). DFS through children.
@@ -165,6 +161,16 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
         setSecondaryFileName(entry.file)
       } else {
         setFileName(entry.file)
+        // Populate the Info-panel meta from the loaded entry. Only the
+        // PRIMARY viewer drives the meta panel — the secondary is for
+        // visual comparison and doesn't own the metadata UI.
+        setMeta({
+          name: entry.name ?? '',
+          organism: (entry as any).organism ?? '',
+          method: (entry as any).method ?? '',
+          resolution: (entry as any).resolution ?? '',
+          description: entry.description ?? '',
+        })
       }
     } catch (err: any) {
       setStoreError(`Failed to load ${entry.name}: ${err.message}`)
@@ -172,7 +178,7 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
       setStoreLoading(false)
       setLoadingId(null)
     }
-  }, [plugin, secondaryPlugin, loadTargetSlot, setFileName, setSecondaryFileName, setStoreLoading, setStoreError, clearSelection])
+  }, [plugin, secondaryPlugin, loadTargetSlot, setFileName, setSecondaryFileName, setMeta, setStoreLoading, setStoreError, clearSelection])
 
   const loadStructure = useCallback(async (entry: StructureEntry) => {
     // If clicking a family root and a descendant is starred, load THAT instead.
@@ -185,6 +191,8 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
     return loadStructureRaw(entry)
   }, [findStarredInSubtree, loadStructureRaw])
 
+  const bumpLibraryVersion = useStructureStore((s) => s.bumpLibraryVersion)
+
   const handleStar = useCallback(async (file: string) => {
     try {
       const res = await fetch('/api/library/star', {
@@ -196,12 +204,12 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `HTTP ${res.status}`)
       }
-      // Re-fetch so the new tree (with reparented entries) shows up
-      fetchIndex()
+      // Triggers re-fetch via the libraryVersion useEffect below
+      bumpLibraryVersion()
     } catch (err) {
       console.warn('[library] star failed:', err)
     }
-  }, [fetchIndex])
+  }, [bumpLibraryVersion])
 
   if (loading) {
     return (

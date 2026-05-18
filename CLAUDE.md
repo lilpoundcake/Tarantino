@@ -119,16 +119,33 @@ entries whose file no longer exists on disk.
 
 Entries can have a `parent` field pointing to another entry's `file`. The
 `StructureLibrary` component renders the result as an expandable tree
-(parent → child → grandchild). Children are auto-expanded if a new descendant
-appeared.
+(parent → child → grandchild). **Everything starts collapsed by default** —
+users explicitly open parents via the chevron icon. No auto-expand.
 
 Starring: each row has a star icon.
 - `POST /api/library/star { file }` flips the `starred` flag in `index.json`.
-- Only one starred entry per family (root + descendants). Starring unstarss siblings.
+- Only one starred entry per family (root + descendants). Starring unstars siblings.
 - The tree structure is NOT modified by starring — it's just a flag.
 - When the user clicks a **family root** that has no `starred` itself but a
   descendant is starred, the library loads the starred descendant instead.
 - The family root row shows an orange `⭐ → <name>` hint chip in that case.
+
+**Per-entry metadata** — each library entry's `name`, `organism`, `method`,
+`resolution`, `description` are persisted in `index.json` and edited via
+the Info panel:
+- `StructureLibrary.loadStructureRaw` populates the store's `meta` from the
+  loaded entry's fields, so switching structures swaps the Info display.
+- `MolstarViewer` post-load extracts `name` / `method` from the PDB header
+  ONLY as a fallback — if the entry already has these set, they're kept.
+- `StructureInfo` debounces edits 500 ms and PUTs to `/api/library/meta`,
+  then bumps `libraryVersion` so the Library row re-renders with the
+  updated name/description.
+
+**Reactive refresh** — `structureStore.libraryVersion` is a monotonic
+counter. Any mutation (star toggle, meta edit, DVBFixer Run, etc.) calls
+`bumpLibraryVersion()`. `StructureLibrary`'s fetch effect depends on this
+counter, so the library re-fetches `index.json` automatically. No manual
+refresh needed.
 
 ### Mol* Integration
 
@@ -236,6 +253,10 @@ number/text → TextField.
   `mutations` table; auto-creates the table on first connection. Returns 503
   if `DATABASE_URL` is unset.
 - `POST /api/library/star { file }` — toggles `starred` flag in `index.json` (one starred per family).
+- `PUT /api/library/meta { file, name?, organism?, method?, resolution?, description? }` — persists
+  per-entry metadata edits into `index.json`. Promotes auto-detected files to manual entries on
+  demand. Only patches the named fields — other entry fields (`id`, `parent`, `starred`, etc.) are
+  preserved.
 - `GET /api/status` — `{ dvbfixer, databaseConfigured, databaseConnected }`.
 
 **Spec format** (`server/dvbfixer-spec.ts`):
@@ -319,7 +340,7 @@ src/
     residue-color-theme.ts      # Mol* ColorTheme: carbons by residue class, others CPK
 
 server/
-  api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/star, /api/status
+  api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/star, /api/library/meta, /api/status
   dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/glycam
 
 scripts/

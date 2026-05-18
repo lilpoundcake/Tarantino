@@ -1,8 +1,11 @@
+import { useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import Paper from '@mui/material/Paper'
-import { useStructureStore } from '../stores/structureStore'
+import { useStructureStore, type StructureMeta } from '../stores/structureStore'
+
+const META_FIELDS: Array<keyof StructureMeta> = ['name', 'organism', 'method', 'resolution', 'description']
 
 export function StructureInfo() {
   const meta = useStructureStore((s) => s.meta)
@@ -10,6 +13,56 @@ export function StructureInfo() {
   const fileName = useStructureStore((s) => s.fileName)
   const chains = useStructureStore((s) => s.chains)
   const elements = useStructureStore((s) => s.elements)
+  const bumpLibraryVersion = useStructureStore((s) => s.bumpLibraryVersion)
+
+  // Persist meta edits to the backend (per-file in structures/index.json).
+  // Debounced so we don't write on every keystroke. Resets when the loaded
+  // file changes so the new structure's meta isn't immediately overwritten
+  // by the just-loaded values.
+  const lastSavedFileRef = useRef<string | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const initialMetaRef = useRef<StructureMeta | null>(null)
+
+  useEffect(() => {
+    // When the loaded file changes, snapshot the meta-on-load. Subsequent
+    // saves only fire if any field differs from the snapshot.
+    initialMetaRef.current = { ...meta }
+    lastSavedFileRef.current = fileName
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileName])
+
+  useEffect(() => {
+    if (!fileName) return
+    if (lastSavedFileRef.current !== fileName) return // file just switched
+    if (!initialMetaRef.current) return
+    // Compare against the initial snapshot
+    const changed = META_FIELDS.some(k => meta[k] !== initialMetaRef.current![k])
+    if (!changed) return
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        await fetch('/api/library/meta', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file: fileName,
+            name: meta.name,
+            organism: meta.organism,
+            method: meta.method,
+            resolution: meta.resolution,
+            description: meta.description,
+          }),
+        })
+        initialMetaRef.current = { ...meta }
+        // Tell the library to re-fetch so the row's name / description
+        // reflects the just-saved values.
+        bumpLibraryVersion()
+      } catch (err) {
+        console.warn('[info] failed to persist meta:', err)
+      }
+    }, 500)
+    return () => clearTimeout(debounceRef.current)
+  }, [meta, fileName, bumpLibraryVersion])
 
   if (!fileName) {
     return (

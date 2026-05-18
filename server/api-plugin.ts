@@ -289,6 +289,54 @@ export function apiPlugin(): Plugin {
         sendJson(res, 200, COMMANDS)
       })
 
+      // ── Update library entry metadata ─────────────────────────────────
+      // PUT /api/library/meta { file, name?, organism?, method?, resolution?, description? }
+      // Persists user edits from the Info panel into index.json so they
+      // survive across structure switches and page reloads.
+      server.middlewares.use('/api/library/meta', async (req, res, next) => {
+        if (req.method !== 'PUT' && req.method !== 'POST') return next()
+        try {
+          const body = JSON.parse(await readBody(req) || '{}')
+          const file = body.file as string | undefined
+          if (!file) return sendJson(res, 400, { error: 'file required' })
+
+          const indexPath = path.join(structuresDir, 'index.json')
+          let entries: any[] = []
+          if (fs.existsSync(indexPath)) {
+            try { entries = JSON.parse(fs.readFileSync(indexPath, 'utf-8')) } catch {}
+          }
+
+          let idx = entries.findIndex(e => e.file === file)
+          if (idx === -1) {
+            // Auto-detected — promote into index.json
+            const absPath = path.resolve(path.join(structuresDir, file))
+            if (!absPath.startsWith(structuresDir) || !fs.existsSync(absPath)) {
+              return sendJson(res, 404, { error: 'file not found on disk' })
+            }
+            entries.push({
+              id: file,
+              file,
+              name: path.basename(file).replace(/\.(pdb|cif|mmcif)$/i, '').toUpperCase(),
+              organism: '', chains: 0, residues: 0,
+              description: '',
+            })
+            idx = entries.length - 1
+          }
+
+          const entry = entries[idx]
+          // Only patch known meta fields. (Don't blindly merge — we don't want
+          // the client to overwrite `id`/`file`/`parent`/`starred` etc.)
+          for (const key of ['name', 'organism', 'method', 'resolution', 'description'] as const) {
+            if (key in body) entry[key] = body[key]
+          }
+
+          fs.writeFileSync(indexPath, JSON.stringify(entries, null, 2))
+          sendJson(res, 200, { ok: true, entry })
+        } catch (err: any) {
+          sendJson(res, 500, { error: err.message ?? String(err) })
+        }
+      })
+
       // ── Star a library entry ──────────────────────────────────────────
       // POST /api/library/star  { file }
       //   Marks the entry as the DEFAULT to load when clicking its family

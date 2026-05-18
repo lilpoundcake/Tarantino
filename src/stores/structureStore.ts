@@ -58,6 +58,10 @@ interface StructureState {
   /** Monotonic counter. Increment to signal "clear all selections everywhere"
    *  (3D viewers + alignment panel etc.). Components watch via useEffect. */
   clearAllSignal: number
+  /** Monotonic counter for library mutations (meta edits, star toggles,
+   *  DVBFixer runs, manual disk changes). StructureLibrary watches this and
+   *  re-fetches /structures/index.json whenever it changes. */
+  libraryVersion: number
 
   setPlugin: (plugin: PluginUIContext | null) => void
   setSecondaryPlugin: (plugin: PluginUIContext | null) => void
@@ -75,6 +79,8 @@ interface StructureState {
   setCameraSyncEnabled: (enabled: boolean) => void
   /** Bump clearAllSignal — components subscribed via useEffect will reset their state. */
   fireClearAll: () => void
+  /** Bump libraryVersion — StructureLibrary re-fetches index.json. */
+  bumpLibraryVersion: () => void
   reset: () => void
 }
 
@@ -103,6 +109,7 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
   focusedCategory: null,
   cameraSyncEnabled: true,
   clearAllSignal: 0,
+  libraryVersion: 0,
 
   setPlugin: (plugin) => set({ plugin }),
   setSecondaryPlugin: (plugin) => set({ secondaryPlugin: plugin }),
@@ -127,6 +134,7 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
   }),
   setCameraSyncEnabled: (enabled) => set({ cameraSyncEnabled: enabled }),
   fireClearAll: () => set(s => ({ clearAllSignal: s.clearAllSignal + 1 })),
+  bumpLibraryVersion: () => set(s => ({ libraryVersion: s.libraryVersion + 1 })),
   reset: () => set({
     chains: [],
     secondaryChains: [],

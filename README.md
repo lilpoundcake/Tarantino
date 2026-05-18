@@ -147,8 +147,8 @@ React 19, TypeScript 6, Vite 6, Mol*, MUI (Material UI v9, plus
 | Interactions        | Computed non-covalent + covalent contacts, filterable by type and chain pair |
 | DVBFixer            | Run split / renumber / model / prepare / minimize / protonate / glycam; outputs land in `structures/dvb_<command>_<timestamp>/` and appear as children in the Library |
 | Mutations           | Editable DataGrid backed by PostgreSQL (`mutations` table: chain / mutation_name / mutations) |
-| Library             | Expandable tree of structures from `structures/`; star a row to set it as the family's default load target |
-| Info                | Editable metadata (name, organism, method, resolution, notes) + stats        |
+| Library             | Expandable tree of structures from `structures/`. **Everything is collapsed by default** — click a chevron to open a parent. Star a row to set it as the family's default load target. Auto-refreshes whenever anything in the library changes. |
+| Info                | Editable metadata (name, organism, method, resolution, notes) + stats. Edits **auto-save per-structure** to `index.json` (debounced 500 ms). |
 
 Every panel can be duplicated via the "+" button on its tabset header.
 Sequence panels maintain independent chain selections.
@@ -163,7 +163,7 @@ Sequence panels maintain independent chain selections.
 | prepare   | Add missing residues, heavy atoms, hydrogens via PDBFixer; supports point mutations        |
 | minimize  | Energy-minimize with OpenMM (AMBER14 + GLYCAM); optional xtb / obminimize post-refine     |
 | protonate | Predict per-residue pKa (PROPKA3); rename to AMBER protonation variants at target pH       |
-| glycam    | Convert glycan PDB residues (BGC, GAL, NAG, ...) to GLYCAM 3-character codes               |
+| glycam    | Convert glycan PDB residues (BGC, GAL, NAG, ...) to GLYCAM 3-character codes (`--to-charmm` for CHARMM nomenclature instead) |
 
 Each command's flags are auto-generated from `server/dvbfixer-spec.ts`. The
 form supports comma-separated repeatable flags (`--mutate A:272:GLU,A:283:GLU`
