@@ -1,0 +1,2 @@
+AlignmentResult — interface { alignedA: string, alignedB: string, markers: string, score: number, identity: number } (gaps as '-', markers: '|' identity, ':' positive, '.' weak, ' ' gap/mismatch)
+alignSequences(seqA, seqB, gapOpen?, gapExtend?) — runs Needleman-Wunsch global alignment, returns AlignmentResult

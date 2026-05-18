@@ -1,0 +1,3 @@
+source: server/dvbfixer-spec.ts
+kind: module
+purpose: DVBFixer CLI command + flag specification — single source of truth used by the backend (build CLI args from request body) and the frontend (render forms via /api/dvbfixer-spec). 7 commands: split, renumber, model, prepare, minimize, protonate, glycam. Flag types: bool, number, text, select, with optional `repeatable` (comma-split into multiple --flag occurrences) and `multi` (whitespace-split nargs='+') modifiers.

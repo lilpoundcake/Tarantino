@@ -1,0 +1,1 @@
+func-b1000003 — useCameraSync uses useEffect to manage canvas3d.didDraw subscription lifecycle.

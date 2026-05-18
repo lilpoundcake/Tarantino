@@ -1,0 +1,1 @@
+MutationsPanel — named-exported React component, no props. Rendered as 'mutations' panel type in App.tsx flexlayout factory. Talks to /api/mutations (GET/POST/PUT/DELETE).

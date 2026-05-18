@@ -1,0 +1,1 @@
+DVBFixerPanel — named-exported React component, no props. Rendered as 'dvbfixer' panel type in App.tsx flexlayout factory. Fetches /api/dvbfixer-spec at mount, POSTs to /api/dvbfixer/:command on Run.

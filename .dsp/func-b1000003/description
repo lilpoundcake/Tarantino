@@ -1,0 +1,3 @@
+source: src/hooks/useCameraSync.ts
+kind: handler
+purpose: Bidirectional camera synchronisation between primary and secondary 3D viewers — subscribes to each plugin's canvas3d.didDraw BehaviorSubject, snapshots the camera, and mirrors the snapshot to the other plugin via setState(snap, 0) + requestDraw. Anti-feedback via per-direction `applying` flags and last-applied snapshot comparison. Disabled when structureStore.cameraSyncEnabled is false or either plugin is missing.

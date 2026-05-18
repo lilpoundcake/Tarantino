@@ -1,0 +1,1 @@
+useCameraSync() — React hook, no return value. Invoked in App.tsx to wire two-way camera mirroring between viewer A and viewer B.

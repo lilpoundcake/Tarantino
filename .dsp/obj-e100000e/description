@@ -1,0 +1,3 @@
+source: (npm) @mui/x-data-grid
+kind: external
+purpose: MUI DataGrid component — feature-rich editable table with row virtualization, inline editing, sorting and filtering. Used by MutationsPanel as the editor for the /api/mutations table.

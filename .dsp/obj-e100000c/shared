@@ -1,0 +1,2 @@
+Pool — connection pool class, instantiated with { connectionString } against DATABASE_URL
+pool.query(sql, params) — parametrised query returning { rows }

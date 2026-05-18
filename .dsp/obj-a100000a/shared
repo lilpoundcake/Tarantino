@@ -1,4 +1,5 @@
 ChainInfo — interface { id, entityId, residues[] }
 ElementInfo — interface { chainId, entityId, entityType, moleculeName, compIds[], residueCount, atomCount }
 StructureMeta — interface { name, organism, method, resolution, description }
-useStructureStore — Zustand hook exposing: plugin, chains, elements, activeChainId, fileName, isLoading, error, meta, setPlugin(), setChains(), setElements(), setActiveChain(), setFileName(), setLoading(), setError(), setMeta(), reset()
+ViewerSlot — 'primary' | 'secondary'
+useStructureStore — Zustand hook exposing: plugin, secondaryPlugin, loadTargetSlot, chains, secondaryChains, elements, activeChainId, fileName, secondaryFileName, isLoading, error, meta, focusedChainId, focusedCategory, cameraSyncEnabled, clearAllSignal, setPlugin(), setSecondaryPlugin(), setLoadTargetSlot(), setChains(), setSecondaryChains(), setElements(), setActiveChain(), setFileName(), setSecondaryFileName(), setLoading(), setError(), setMeta(), setFocusedChain(chainId, category?), setCameraSyncEnabled(), fireClearAll(), reset()

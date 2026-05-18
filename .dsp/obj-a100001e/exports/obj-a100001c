@@ -1,0 +1,1 @@
+obj-a100001c — scripts/dev.mjs boots this compose file (docker compose up -d) when DATABASE_URL is unset.

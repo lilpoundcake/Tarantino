@@ -1,0 +1,3 @@
+source: scripts/set-modeller-key.sh
+kind: script
+purpose: Bash helper — writes the Modeller academic license key into the active conda/micromamba env's modeller/config.py. Reads KEY env var (required) and an optional env-prefix argument; locates the config file under <prefix>/lib/modeller-*/modlib/modeller/config.py and sed-replaces or appends the license line, leaving a .bak.

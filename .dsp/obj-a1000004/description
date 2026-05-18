@@ -1,3 +1,3 @@
 source: src/components/MolstarViewer.tsx
 kind: module
-purpose: Wraps Mol* WebGL viewer — initializes PluginUIContext via createPluginUI with left-collapsed controls, registers TarantinoResidueColorTheme, sets white background, extracts chains/elements/meta on structure load, auto-hides water, recolors focus representations, handles ResizeObserver-based resize for flexlayout panels
+purpose: Wraps Mol* WebGL viewer — takes `slot` prop ('primary' | 'secondary'); each instance creates and owns its own PluginUIContext (via createPluginUI with left-collapsed controls), registers TarantinoResidueColorTheme, sets white background, handles ResizeObserver-based panel resize. Primary publishes chains+elements+meta into structureStore; secondary publishes only secondaryChains (for cross-structure alignment). On structure load, auto-hides water and runs OrientAxes at ~200 ms post-load with camera-sync suppression so the auto-orient doesn't propagate to the other viewer.

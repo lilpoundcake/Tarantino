@@ -1,0 +1,3 @@
+source: scripts/dev.mjs
+kind: script
+purpose: Smart dev launcher — if DATABASE_URL is unset and docker/docker-compose is available, spins up the bundled postgres container via docker-compose.yml, waits for port 5432, sets DATABASE_URL=postgres://tarantino:tarantino@localhost:5432/tarantino, then execs `vite`. If docker is unavailable, still runs vite (Mutations tab shows missing-DB notice).

@@ -1,3 +1,3 @@
 source: src/components/StructureLibrary.tsx
 kind: module
-purpose: Structure file browser — fetches /structures/index.json, displays clickable list of available PDB/mmCIF files with name/organism/chain count, loads selected entry into Mol* plugin. Shows LOADED chip for active file.
+purpose: Structure file browser — fetches /structures/index.json, renders a recursive parent→child tree (entries with a `parent` matching another entry's `file` nest under it; orphans treated as roots) via a recursive EntryRow component, with per-row star icon for marking the family root (POSTs to /api/library/star) plus a hint chip when a descendant is starred. Per-row A/B slot toggle (ToggleButtonGroup) routes the load into either the primary or secondary viewer; updates structureStore.loadTargetSlot. Shows LOADED chip for the currently active file in each slot.

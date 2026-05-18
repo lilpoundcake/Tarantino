@@ -1,0 +1,4 @@
+FlagType — 'bool' | 'number' | 'text' | 'select'
+FlagDef — interface { flag, label, type, default?, options?, min?, max?, step?, help?, repeatable?, multi? }
+CommandDef — interface { name, label, description, flags: FlagDef[] }
+COMMANDS — readonly CommandDef[] enumerating split/renumber/model/prepare/minimize/protonate/glycam

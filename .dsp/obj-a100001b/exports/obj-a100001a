@@ -1,0 +1,1 @@
+obj-a100001a — server/api-plugin.ts imports COMMANDS to build CLI argv from POST body and to serve /api/dvbfixer-spec.

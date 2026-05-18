@@ -1,1 +1,1 @@
-MolstarViewer — named-exported React component, no props. Uses ResizeObserver for panel resize handling.
+MolstarViewer — named-exported React component, props: { slot?: 'primary' | 'secondary' } (default 'primary'). Uses ResizeObserver for panel resize handling. Each instance creates its own plugin and publishes into the structureStore slot-appropriate fields.

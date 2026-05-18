@@ -1,0 +1,1 @@
+obj-a1000002 — App.tsx invokes useCameraSync() alongside useMolstarSync/useSequenceSync to enable bidirectional camera mirroring between the two 3D viewers.

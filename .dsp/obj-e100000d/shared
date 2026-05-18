@@ -1,0 +1,1 @@
+Type declarations for pg (Pool, PoolClient, QueryResult, etc.) — consumed implicitly by TypeScript when pg is imported.

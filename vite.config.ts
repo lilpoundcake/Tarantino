@@ -2,44 +2,78 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import fs from 'fs'
+import { apiPlugin } from './server/api-plugin'
+
+function walkPdbFiles(dir: string, baseDir: string, out: string[]) {
+  for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+    // Skip dot-prefixed and underscore-prefixed directories (e.g. _dvb_failed/,
+    // .git/). Outputs of failed DVBFixer runs are moved into _dvb_failed/ so
+    // they don't pollute the library.
+    if (item.isDirectory() && (item.name.startsWith('_') || item.name.startsWith('.'))) {
+      continue
+    }
+    const full = path.join(dir, item.name)
+    if (item.isDirectory()) {
+      walkPdbFiles(full, baseDir, out)
+    } else if (item.isFile()) {
+      const lower = item.name.toLowerCase()
+      if (lower.endsWith('.pdb') || lower.endsWith('.cif') || lower.endsWith('.mmcif')) {
+        out.push(path.relative(baseDir, full).replace(/\\/g, '/'))
+      }
+    }
+  }
+}
 
 function scanStructuresDir(structuresDir: string) {
   if (!fs.existsSync(structuresDir)) return []
 
-  // Read manual index if exists
+  // Read manual index if exists (may contain entries with `parent` for hierarchy)
   const indexPath = path.join(structuresDir, 'index.json')
   let manual: any[] = []
   if (fs.existsSync(indexPath)) {
     try { manual = JSON.parse(fs.readFileSync(indexPath, 'utf-8')) } catch {}
   }
-  const manualFiles = new Set(manual.map((e: any) => e.file))
 
-  // Scan folder for .pdb/.cif/.mmcif not already in index
-  const files = fs.readdirSync(structuresDir).filter(f => {
-    const ext = f.toLowerCase()
-    return (ext.endsWith('.pdb') || ext.endsWith('.cif') || ext.endsWith('.mmcif'))
-      && !manualFiles.has(f)
-  })
+  // Recursively scan for .pdb/.cif/.mmcif on disk
+  const allFiles: string[] = []
+  walkPdbFiles(structuresDir, structuresDir, allFiles)
+  const onDisk = new Set(allFiles)
 
-  const autoEntries = files.map(f => {
-    const id = f.replace(/\.(pdb|cif|mmcif)$/i, '')
-    return {
-      id,
-      file: f,
-      name: id.toUpperCase(),
-      organism: '',
-      chains: 0,
-      residues: 0,
-      description: 'Auto-detected from structures/ folder',
-    }
-  })
+  // Drop manual entries whose file is missing from disk (user deleted it).
+  // Auto-prune the index.json file so stale entries don't accumulate.
+  const aliveManual = manual.filter((e: any) => onDisk.has(e.file))
+  if (aliveManual.length !== manual.length) {
+    try { fs.writeFileSync(indexPath, JSON.stringify(aliveManual, null, 2)) } catch {}
+  }
 
-  return [...manual, ...autoEntries]
+  const manualFiles = new Set(aliveManual.map((e: any) => e.file))
+
+  // Subfolder paths are kept relative (e.g. 'dvb_split_2024-01-01T12-00-00/4hhb_split.pdb').
+  const autoEntries = allFiles
+    .filter(f => !manualFiles.has(f))
+    .map(f => {
+      const id = f.replace(/\.(pdb|cif|mmcif)$/i, '')
+      const base = path.basename(f).replace(/\.(pdb|cif|mmcif)$/i, '')
+      return {
+        id,
+        file: f,
+        name: base.toUpperCase(),
+        organism: '',
+        chains: 0,
+        residues: 0,
+        description: f.includes('/')
+          ? `From ${path.dirname(f)}`
+          : 'Auto-detected from structures/ folder',
+      }
+    })
+
+  return [...aliveManual, ...autoEntries]
 }
 
 export default defineConfig({
   plugins: [
     react(),
+    apiPlugin(),
     {
       name: 'serve-structures',
       configureServer(server) {

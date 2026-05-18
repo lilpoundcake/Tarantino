@@ -1,0 +1,2 @@
+default export — Vite UserConfig with @ alias and plugins: react(), apiPlugin(), serve-structures inline plugin.
+walkPdbFiles(dir, baseDir, out) — internal recursive scanner, not exported (parent module)

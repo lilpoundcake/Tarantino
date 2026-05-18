@@ -1,0 +1,3 @@
+source: src/lib/alignment.ts
+kind: module
+purpose: Pure-TypeScript Needleman-Wunsch global pairwise alignment with affine gap penalties and BLOSUM62 substitution matrix. No external deps. Used by AlignmentPanel to align two chain sequences.

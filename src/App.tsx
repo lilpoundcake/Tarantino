@@ -17,6 +17,13 @@ import ListAltIcon from '@mui/icons-material/ListAlt'
 import HubIcon from '@mui/icons-material/Hub'
 import FolderIcon from '@mui/icons-material/Folder'
 import InfoIcon from '@mui/icons-material/Info'
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
+import BuildIcon from '@mui/icons-material/Build'
+import EditNoteIcon from '@mui/icons-material/EditNote'
+import LinkIcon from '@mui/icons-material/Link'
+import LinkOffIcon from '@mui/icons-material/LinkOff'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
 import { MolstarViewer } from './components/MolstarViewer'
 import { SequenceViewer } from './components/SequenceViewer'
 import { FileLoader } from './components/FileLoader'
@@ -24,16 +31,24 @@ import { StructureLibrary } from './components/StructureLibrary'
 import { StructureInfo } from './components/StructureInfo'
 import { ElementsTable } from './components/ElementsTable'
 import { InteractionsPanel } from './components/InteractionsPanel'
+import { AlignmentPanel } from './components/AlignmentPanel'
+import { DVBFixerPanel } from './components/DVBFixerPanel'
+import { MutationsPanel } from './components/MutationsPanel'
 import { useStructureStore } from './stores/structureStore'
 import { useSelectionStore } from './stores/selectionStore'
 import { useMolstarSync } from './hooks/useMolstarSync'
 import { useSequenceSync } from './hooks/useSequenceSync'
+import { useCameraSync } from './hooks/useCameraSync'
 
 const PANEL_TYPES = [
   { component: 'viewer', name: '3D Structure', icon: <ViewInArIcon sx={{ fontSize: 16 }} /> },
+  { component: 'viewer2', name: '3D Structure (B)', icon: <ViewInArIcon sx={{ fontSize: 16 }} /> },
   { component: 'sequence', name: 'Sequence', icon: <TextSnippetIcon sx={{ fontSize: 16 }} /> },
   { component: 'elements', name: 'Elements', icon: <ListAltIcon sx={{ fontSize: 16 }} /> },
   { component: 'interactions', name: 'Interactions', icon: <HubIcon sx={{ fontSize: 16 }} /> },
+  { component: 'alignment', name: 'Alignment', icon: <CompareArrowsIcon sx={{ fontSize: 16 }} /> },
+  { component: 'dvbfixer', name: 'DVBFixer', icon: <BuildIcon sx={{ fontSize: 16 }} /> },
+  { component: 'mutations', name: 'Mutations', icon: <EditNoteIcon sx={{ fontSize: 16 }} /> },
   { component: 'library', name: 'Library', icon: <FolderIcon sx={{ fontSize: 16 }} /> },
   { component: 'info', name: 'Info', icon: <InfoIcon sx={{ fontSize: 16 }} /> },
 ]
@@ -114,6 +129,9 @@ const layoutJson: IJsonModel = {
 function App() { // @dsp obj-a1000002
   const modelRef = useRef(Model.fromJson(layoutJson))
   const plugin = useStructureStore((s) => s.plugin)
+  const secondaryPlugin = useStructureStore((s) => s.secondaryPlugin)
+  const cameraSyncEnabled = useStructureStore((s) => s.cameraSyncEnabled)
+  const setCameraSyncEnabled = useStructureStore((s) => s.setCameraSyncEnabled)
   const isLoading = useStructureStore((s) => s.isLoading)
   const error = useStructureStore((s) => s.error)
   const fileName = useStructureStore((s) => s.fileName)
@@ -124,6 +142,7 @@ function App() { // @dsp obj-a1000002
 
   useMolstarSync()
   useSequenceSync()
+  useCameraSync()
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -149,12 +168,16 @@ function App() { // @dsp obj-a1000002
 
   const factory = useCallback((node: TabNode) => {
     switch (node.getComponent()) {
-      case 'viewer': return <MolstarViewer />
+      case 'viewer': return <MolstarViewer slot="primary" />
+      case 'viewer2': return <MolstarViewer slot="secondary" />
       case 'sequence': return <SequenceViewer />
       case 'library': return <StructureLibrary />
       case 'info': return <StructureInfo />
       case 'elements': return <ElementsTable />
       case 'interactions': return <InteractionsPanel />
+      case 'alignment': return <AlignmentPanel />
+      case 'dvbfixer': return <DVBFixerPanel />
+      case 'mutations': return <MutationsPanel />
       default: return null
     }
   }, [])
@@ -223,6 +246,24 @@ function App() { // @dsp obj-a1000002
               </Typography>
               <Box sx={{ width: '1px', height: 16, bgcolor: '#1D3261', flexShrink: 0 }} />
             </>
+          )}
+          {plugin && secondaryPlugin && (
+            <Tooltip title={cameraSyncEnabled ? 'Camera sync ON — viewers move together (click to unlink)' : 'Camera sync OFF (click to link)'}>
+              <IconButton
+                size="small"
+                onClick={() => setCameraSyncEnabled(!cameraSyncEnabled)}
+                sx={{
+                  p: 0.5,
+                  color: cameraSyncEnabled ? 'primary.main' : 'text.secondary',
+                  bgcolor: cameraSyncEnabled ? 'action.selected' : 'transparent',
+                }}
+              >
+                {cameraSyncEnabled
+                  ? <LinkIcon sx={{ fontSize: 16 }} />
+                  : <LinkOffIcon sx={{ fontSize: 16 }} />
+                }
+              </IconButton>
+            </Tooltip>
           )}
           <FileLoader />
         </Toolbar>

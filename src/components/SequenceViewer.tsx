@@ -80,12 +80,26 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
     // Show as sticks + zoom
     selectResiduesInViewer(plugin, residues, 'select')
     focusResiduesInViewer(plugin, residues)
-    // Zoom camera
+    // Zoom camera on the PRIMARY viewer only. If the secondary viewer is
+    // open and camera sync is on, mirroring would push the primary camera's
+    // residue-level zoom onto the secondary viewer (which contains a
+    // different structure — the zoomed coordinates make no sense there).
+    // Temporarily suppress sync, do the focus, then restore.
+    const storeState = useStructureStore.getState()
+    const wasSyncEnabled = storeState.cameraSyncEnabled
+    const hasSecondary = !!storeState.secondaryPlugin
+    if (wasSyncEnabled && hasSecondary) storeState.setCameraSyncEnabled(false)
+
     const loci = plugin.managers.structure.selection.getLoci(
       plugin.managers.structure.hierarchy.current.structures[0]?.cell.obj?.data as any
     )
     if (loci) {
       plugin.managers.camera.focusLoci(loci)
+    }
+
+    if (wasSyncEnabled && hasSecondary) {
+      // Restore sync after the focus animation settles
+      setTimeout(() => useStructureStore.getState().setCameraSyncEnabled(true), 500)
     }
   }, [plugin, selectedResidues])
 

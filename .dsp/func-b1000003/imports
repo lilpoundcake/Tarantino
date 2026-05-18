@@ -1,0 +1,3 @@
+obj-e1000001 — useEffect for subscription lifecycle
+obj-e1000003 — PluginUIContext type and Camera.Snapshot type from molstar deep imports (mol-plugin-ui/context, mol-canvas3d/camera)
+obj-a100000a — structureStore to read plugin, secondaryPlugin, cameraSyncEnabled

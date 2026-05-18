@@ -1,0 +1,7 @@
+obj-e1000001 — useMemo/useState/useEffect/useCallback/useRef for memoized chain options, drag state, and viewer-side selection lifecycle
+obj-e1000009 — Box, Typography, FormControl, Select, MenuItem, ListSubheader, Chip, IconButton, Tooltip from @mui/material for chain pickers and column grid chrome
+obj-e100000a — CenterFocusStrongIcon, ClearIcon from @mui/icons-material for toolbar actions
+obj-a100000a — structureStore to read chains, secondaryChains, plugin, secondaryPlugin, fileName, secondaryFileName, clearAllSignal
+obj-a100000c — threeToOne to map 3-letter residue codes to 1-letter for alignment input
+obj-a1000017 — alignSequences + AlignmentResult to run Needleman-Wunsch on chain sequences
+obj-a100000b — selectResiduesInViewer, clearSelection, clearHighlight, showSelectionSticks, clearSelectionSticks, focusResiduesInViewer for cross-viewer 3D highlight/sticks/focus

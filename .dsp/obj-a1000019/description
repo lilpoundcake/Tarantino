@@ -1,0 +1,3 @@
+source: src/components/MutationsPanel.tsx
+kind: module
+purpose: Mutations browser/editor — MUI DataGrid bound to /api/mutations CRUD endpoints. Supports inline cell editing (PUT), add-row (POST), delete-row (DELETE), refresh button. Shows DATABASE_URL-missing notice via error Alert if backend rejects request.

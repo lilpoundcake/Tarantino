@@ -1,15 +1,19 @@
 obj-e1000001 — useRef/useEffect/useCallback/useState for layout model, keyboard handler, menu state
 obj-e100000b — Layout, Model, TabNode, TabSetNode, Actions, DockLocation, IJsonModel, ITabSetRenderValues, BorderNode for dockable panel system
-obj-e1000009 — AppBar, Toolbar, Typography, Box, CircularProgress, Menu, MenuItem, ListItemIcon, ListItemText for app chrome
-obj-e100000a — ViewInArIcon, TextSnippetIcon, ListAltIcon, HubIcon, FolderIcon, InfoIcon for panel type menu
-obj-a1000004 — MolstarViewer component for 3D structure rendering
+obj-e1000009 — AppBar, Toolbar, Typography, Box, CircularProgress, Menu, MenuItem, ListItemIcon, ListItemText, IconButton, Tooltip for app chrome and camera-sync toggle
+obj-e100000a — ViewInArIcon, TextSnippetIcon, ListAltIcon, HubIcon, FolderIcon, InfoIcon, CompareArrowsIcon, BuildIcon, EditNoteIcon, LinkIcon, LinkOffIcon for panel-type menu and camera-sync state icons
+obj-a1000004 — MolstarViewer component for 3D structure rendering (rendered as both 'viewer' and 'viewer2' with the slot prop)
 obj-a1000006 — SequenceViewer component for amino acid sequence display
 obj-a1000005 — FileLoader component for upload button in toolbar
 obj-a1000012 — StructureLibrary component for file browser panel
 obj-a1000011 — StructureInfo component for metadata panel
 obj-a1000015 — ElementsTable component for structure elements tree
 obj-a1000010 — InteractionsPanel component for interaction browser
-obj-a100000a — structureStore to read fileName, isLoading, error state
+obj-a1000016 — AlignmentPanel component for the 'alignment' panel type
+obj-a1000018 — DVBFixerPanel component for the 'dvbfixer' panel type
+obj-a1000019 — MutationsPanel component for the 'mutations' panel type
+obj-a100000a — structureStore to read fileName, isLoading, error, cameraSyncEnabled and call setCameraSyncEnabled
 obj-a1000009 — selectionStore to access clearSelection for Escape key handler
 func-b1000001 — useMolstarSync hook to sync Mol* selections to store
 func-b1000002 — useSequenceSync hook to sync store selections to Mol*
+func-b1000003 — useCameraSync hook to mirror camera between primary and secondary viewers

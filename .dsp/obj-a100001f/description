@@ -1,0 +1,3 @@
+source: vite.config.ts
+kind: config
+purpose: Vite build/dev config — defines '@' alias to src/, applies @vitejs/plugin-react, registers apiPlugin() for /api endpoints, and inlines a serve-structures plugin that recursively walks structures/ (skipping _* and .* directories), merges with index.json manual entries, auto-prunes stale index entries, and copies structures/ into dist on build.

@@ -1,0 +1,3 @@
+source: (npm) pg
+kind: external
+purpose: PostgreSQL client for Node.js — provides Pool for connection pooling, used by the dev-server API plugin to back the Mutations CRUD endpoints. Imported lazily so the API plugin still works when pg or DATABASE_URL is missing.

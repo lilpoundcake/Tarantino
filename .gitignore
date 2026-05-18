@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Vendored DVBFixer install (cloned by the user, not part of this repo)
+DVBFixer/
+
+# DVBFixer failed runs are moved here at runtime
+structures/_dvb_failed/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

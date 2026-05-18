@@ -1,0 +1,3 @@
+source: src/components/DVBFixerPanel.tsx
+kind: module
+purpose: Form-driven DVBFixer CLI runner UI — fetches command/flag spec from /api/dvbfixer-spec, renders MUI Tabs of sub-commands (split, renumber, model, prepare, minimize, protonate, glycam), generates per-flag inputs (Checkbox/TextField/Select/number), POSTs to /api/dvbfixer/:command and displays output. Re-uses spec types locally rather than importing server code.

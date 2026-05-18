@@ -1,0 +1,3 @@
+source: docker-compose.yml
+kind: config
+purpose: Docker Compose definition for the bundled postgres dev database — service `db` based on postgres:16-alpine, user/password/db all `tarantino`, exposes 5432, persists data in named volume `tarantino-pg-data`, includes pg_isready healthcheck. Backs the Mutations panel via DATABASE_URL.

@@ -1,0 +1,4 @@
+obj-e1000001 — useCallback/useEffect/useState for row state, refresh, and edit handlers
+obj-e1000009 — Box, Button, Typography, Alert, IconButton, Tooltip from @mui/material for chrome
+obj-e100000a — AddIcon, DeleteIcon, RefreshIcon from @mui/icons-material for toolbar actions
+obj-e100000e — DataGrid plus GridColDef, GridRowModel, GridRowsProp types from @mui/x-data-grid for the editable table

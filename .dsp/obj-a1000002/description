@@ -1,3 +1,3 @@
 source: src/App.tsx
 kind: module
-purpose: Root component — uses flexlayout-react for a dockable multi-panel IDE layout. Renders MUI AppBar header with file name/loader, flexlayout grid with panels (3D viewer, sequence, elements, interactions, library, info). Supports adding panels via "+" button with MUI Menu. Activates bidirectional sync hooks.
+purpose: Root component — uses flexlayout-react for a dockable multi-panel IDE layout. Renders MUI AppBar header with file name/loader and a camera-sync link/link-off IconButton, plus the flexlayout grid with registered panel types: viewer, viewer2 (secondary), sequence, elements, interactions, alignment, dvbfixer, mutations, library, info. Supports adding panels via "+" button with MUI Menu. Activates useMolstarSync, useSequenceSync, and useCameraSync hooks.

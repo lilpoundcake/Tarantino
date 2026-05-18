@@ -1,0 +1,1 @@
+apiPlugin() — default-exported Vite plugin factory. Registers configureServer middleware that routes the /api/* paths above. No other exports.

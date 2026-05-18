@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
@@ -7,9 +7,17 @@ import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import Tooltip from '@mui/material/Tooltip'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
-import { useStructureStore } from '../stores/structureStore'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight'
+import StarIcon from '@mui/icons-material/Star'
+import StarBorderIcon from '@mui/icons-material/StarBorder'
+import { useStructureStore, type ViewerSlot } from '../stores/structureStore'
 import { useSelectionStore } from '../stores/selectionStore'
 
 interface StructureEntry {
@@ -20,18 +28,70 @@ interface StructureEntry {
   chains: number
   residues: number
   description: string
+  /** When set, this entry is a child of the entry whose `file` matches. */
+  parent?: string
+  /** DVBFixer command that produced this child (set on outputs). */
+  command?: string
+  /** User-marked root. Visual indicator only — re-rooting is persisted as parent rewrites. */
+  starred?: boolean
 }
 
 export function StructureLibrary(_props: { onClose?: () => void }) {
   const [entries, setEntries] = useState<StructureEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingId, setLoadingId] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  // Build parent → children map. Roots are entries without a parent that
+  // matches an existing entry's `file`. Orphans (parent set but parent file
+  // missing) are treated as roots too so they're not hidden.
+  const tree = useMemo(() => {
+    const fileSet = new Set(entries.map(e => e.file))
+    const byParent = new Map<string, StructureEntry[]>()
+    const roots: StructureEntry[] = []
+    for (const e of entries) {
+      if (e.parent && fileSet.has(e.parent)) {
+        const arr = byParent.get(e.parent) ?? []
+        arr.push(e)
+        byParent.set(e.parent, arr)
+      } else {
+        roots.push(e)
+      }
+    }
+    return { roots, byParent }
+  }, [entries])
+
+  // Auto-expand parents that have a newly loaded structure (e.g. after a
+  // fresh DVBFixer run) so the new child is immediately visible.
+  useEffect(() => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      for (const parent of tree.byParent.keys()) {
+        next.add(parent)
+      }
+      return next
+    })
+  }, [tree])
+
+  const toggleExpanded = useCallback((file: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(file)) next.delete(file)
+      else next.add(file)
+      return next
+    })
+  }, [])
 
   const plugin = useStructureStore((s) => s.plugin)
+  const secondaryPlugin = useStructureStore((s) => s.secondaryPlugin)
+  const loadTargetSlot = useStructureStore((s) => s.loadTargetSlot)
+  const setLoadTargetSlot = useStructureStore((s) => s.setLoadTargetSlot)
   const setFileName = useStructureStore((s) => s.setFileName)
+  const setSecondaryFileName = useStructureStore((s) => s.setSecondaryFileName)
   const setStoreLoading = useStructureStore((s) => s.setLoading)
   const setStoreError = useStructureStore((s) => s.setError)
   const fileName = useStructureStore((s) => s.fileName)
+  const secondaryFileName = useStructureStore((s) => s.secondaryFileName)
   const clearSelection = useSelectionStore((s) => s.clearSelection)
 
   const fetchIndex = useCallback(async () => {
@@ -49,12 +109,47 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
 
   useEffect(() => { fetchIndex() }, [fetchIndex])
 
-  const loadStructure = useCallback(async (entry: StructureEntry) => {
-    if (!plugin) return
+  // Find a starred descendant of `entry`. If found, that's what we load
+  // when the user clicks `entry` (the family root). DFS through children.
+  const findStarredInSubtree = useCallback((root: StructureEntry): StructureEntry | null => {
+    const byParent = new Map<string, StructureEntry[]>()
+    for (const e of entries) {
+      if (e.parent) {
+        const arr = byParent.get(e.parent) ?? []
+        arr.push(e)
+        byParent.set(e.parent, arr)
+      }
+    }
+    const stack: StructureEntry[] = [root]
+    const seen = new Set<string>([root.file])
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      if (cur.starred && cur !== root) return cur
+      for (const child of byParent.get(cur.file) ?? []) {
+        if (!seen.has(child.file)) {
+          seen.add(child.file)
+          stack.push(child)
+        }
+      }
+    }
+    return null
+  }, [entries])
+
+  const loadStructureRaw = useCallback(async (entry: StructureEntry) => {
+    const targetPlugin = loadTargetSlot === 'secondary' ? secondaryPlugin : plugin
+    if (!targetPlugin) {
+      setStoreError(
+        loadTargetSlot === 'secondary'
+          ? 'Open a "3D Structure (B)" tab first'
+          : 'Open a "3D Structure" tab first'
+      )
+      return
+    }
     setLoadingId(entry.id)
     setStoreLoading(true)
     setStoreError(null)
-    clearSelection()
+    // Only clear sequence-panel selection when loading into primary
+    if (loadTargetSlot === 'primary') clearSelection()
 
     try {
       const res = await fetch(`/structures/${entry.file}`)
@@ -62,18 +157,51 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
       const text = await res.text()
       const format = entry.file.endsWith('.cif') || entry.file.endsWith('.mmcif') ? 'mmcif' : 'pdb'
 
-      await plugin.clear()
-      const data = await plugin.builders.data.rawData({ data: text, label: entry.file })
-      const trajectory = await plugin.builders.structure.parseTrajectory(data, format)
-      await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default')
-      setFileName(entry.file)
+      await targetPlugin.clear()
+      const data = await targetPlugin.builders.data.rawData({ data: text, label: entry.file })
+      const trajectory = await targetPlugin.builders.structure.parseTrajectory(data, format)
+      await targetPlugin.builders.structure.hierarchy.applyPreset(trajectory, 'default')
+      if (loadTargetSlot === 'secondary') {
+        setSecondaryFileName(entry.file)
+      } else {
+        setFileName(entry.file)
+      }
     } catch (err: any) {
       setStoreError(`Failed to load ${entry.name}: ${err.message}`)
     } finally {
       setStoreLoading(false)
       setLoadingId(null)
     }
-  }, [plugin, setFileName, setStoreLoading, setStoreError, clearSelection])
+  }, [plugin, secondaryPlugin, loadTargetSlot, setFileName, setSecondaryFileName, setStoreLoading, setStoreError, clearSelection])
+
+  const loadStructure = useCallback(async (entry: StructureEntry) => {
+    // If clicking a family root and a descendant is starred, load THAT instead.
+    if (!entry.parent && !entry.starred) {
+      const starredDescendant = findStarredInSubtree(entry)
+      if (starredDescendant) {
+        return loadStructureRaw(starredDescendant)
+      }
+    }
+    return loadStructureRaw(entry)
+  }, [findStarredInSubtree, loadStructureRaw])
+
+  const handleStar = useCallback(async (file: string) => {
+    try {
+      const res = await fetch('/api/library/star', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
+      // Re-fetch so the new tree (with reparented entries) shows up
+      fetchIndex()
+    } catch (err) {
+      console.warn('[library] star failed:', err)
+    }
+  }, [fetchIndex])
 
   if (loading) {
     return (
@@ -96,59 +224,53 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.5, py: 0.5, borderBottom: 1, borderColor: 'divider' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.5, py: 0.5, borderBottom: 1, borderColor: 'divider', gap: 1 }}>
         <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
           Library
         </Typography>
-        <IconButton size="small" onClick={fetchIndex} sx={{ p: 0.5 }}>
-          <RefreshIcon sx={{ fontSize: 14 }} />
-        </IconButton>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto' }}>
+          {secondaryPlugin && (
+            <Tooltip title="Choose which 3D viewer the next click loads into">
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={loadTargetSlot}
+                onChange={(_e, v: ViewerSlot | null) => v && setLoadTargetSlot(v)}
+                sx={{
+                  height: 20,
+                  '& .MuiToggleButton-root': {
+                    px: 0.75, py: 0, fontSize: '0.6rem', fontWeight: 700, lineHeight: 1,
+                    border: '1px solid', borderColor: 'divider',
+                  },
+                }}
+              >
+                <ToggleButton value="primary">A</ToggleButton>
+                <ToggleButton value="secondary">B</ToggleButton>
+              </ToggleButtonGroup>
+            </Tooltip>
+          )}
+          <IconButton size="small" onClick={fetchIndex} sx={{ p: 0.5 }}>
+            <RefreshIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
       </Box>
       <List dense disablePadding sx={{ flex: 1, overflow: 'auto' }}>
-        {entries.map((entry) => {
-          const isActive = fileName === entry.file
-          const isLoading = loadingId === entry.id
-          return (
-            <ListItemButton
-              key={entry.id}
-              selected={isActive}
-              onClick={() => loadStructure(entry)}
-              disabled={isLoading}
-              sx={{
-                borderBottom: '1px solid',
-                borderColor: 'divider',
-                borderLeft: isActive ? '3px solid' : '3px solid transparent',
-                borderLeftColor: isActive ? 'primary.main' : 'transparent',
-                py: 1, px: 1.5,
-              }}
-            >
-              <ListItemText
-                primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
-                      {entry.name}
-                    </Typography>
-                    {isLoading && <CircularProgress size={12} />}
-                    {isActive && !isLoading && (
-                      <Chip label="LOADED" size="small" color="primary" sx={{ height: 16, fontSize: '0.6rem' }} />
-                    )}
-                  </Box>
-                }
-                secondary={
-                  <>
-                    <Typography component="span" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      {entry.id} · {entry.chains} chain{entry.chains > 1 ? 's' : ''} · {entry.residues} res
-                    </Typography>
-                    <br />
-                    <Typography component="span" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>
-                      {entry.description}
-                    </Typography>
-                  </>
-                }
-              />
-            </ListItemButton>
-          )
-        })}
+        {tree.roots.map((entry) => (
+          <EntryRow
+            key={entry.id}
+            entry={entry}
+            depth={0}
+            children={tree.byParent.get(entry.file) ?? []}
+            byParent={tree.byParent}
+            expanded={expanded}
+            toggleExpanded={toggleExpanded}
+            fileName={fileName}
+            secondaryFileName={secondaryFileName}
+            loadingId={loadingId}
+            onLoad={loadStructure}
+            onStar={handleStar}
+          />
+        ))}
       </List>
       <Box sx={{ px: 1.5, py: 0.5, borderTop: 1, borderColor: 'divider' }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.6rem' }}>
@@ -156,5 +278,173 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
         </Typography>
       </Box>
     </Box>
+  )
+}
+
+interface EntryRowProps {
+  entry: StructureEntry
+  depth: number
+  children: StructureEntry[]
+  byParent: Map<string, StructureEntry[]>
+  expanded: Set<string>
+  toggleExpanded: (file: string) => void
+  fileName: string | null
+  secondaryFileName: string | null
+  loadingId: string | null
+  onLoad: (entry: StructureEntry) => void
+  onStar: (file: string) => void
+  /** If this entry has a starred descendant, the name to display as a hint. */
+  starredDescendantName?: string | null
+}
+
+function EntryRow({
+  entry,
+  depth,
+  children,
+  byParent,
+  expanded,
+  toggleExpanded,
+  fileName,
+  secondaryFileName,
+  loadingId,
+  onLoad,
+  onStar,
+  starredDescendantName,
+}: EntryRowProps) {
+  const inPrimary = fileName === entry.file
+  const inSecondary = secondaryFileName === entry.file
+  const isActive = inPrimary || inSecondary
+  const isLoading = loadingId === entry.id
+  const hasChildren = children.length > 0
+  const isExpanded = expanded.has(entry.file)
+
+  // For a family ROOT (depth 0, no parent), find a starred descendant for
+  // the hint chip. Only shown at the root level — children inside an
+  // already-expanded subtree don't need the hint since the star is visible.
+  let starredHintName = starredDescendantName ?? null
+  if (depth === 0 && !entry.parent && !entry.starred && !starredHintName) {
+    const stack: StructureEntry[] = [...children]
+    const seen = new Set<string>()
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      if (seen.has(cur.file)) continue
+      seen.add(cur.file)
+      if (cur.starred) { starredHintName = cur.name; break }
+      for (const grand of byParent.get(cur.file) ?? []) stack.push(grand)
+    }
+  }
+
+  return (
+    <>
+      <ListItemButton
+        selected={isActive}
+        onClick={() => onLoad(entry)}
+        disabled={isLoading}
+        sx={{
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          borderLeft: isActive ? '3px solid' : '3px solid transparent',
+          borderLeftColor: isActive ? 'primary.main' : 'transparent',
+          py: 0.75, px: 1, pl: 1 + depth * 1.5,
+        }}
+      >
+        {/* Chevron / indent indicator */}
+        <Box sx={{ width: 18, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+          {hasChildren ? (
+            <IconButton
+              size="small"
+              onClick={(e) => { e.stopPropagation(); toggleExpanded(entry.file) }}
+              sx={{ p: 0 }}
+            >
+              {isExpanded
+                ? <ExpandMoreIcon sx={{ fontSize: 16 }} />
+                : <ChevronRightIcon sx={{ fontSize: 16 }} />
+              }
+            </IconButton>
+          ) : depth > 0 ? (
+            <SubdirectoryArrowRightIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+          ) : null}
+        </Box>
+
+        <ListItemText
+          primary={
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Typography variant="body2" sx={{ fontWeight: depth === 0 ? 600 : 500, fontSize: '0.75rem' }}>
+                {entry.name}
+              </Typography>
+              {entry.command && (
+                <Chip
+                  label={entry.command}
+                  size="small"
+                  variant="outlined"
+                  sx={{ height: 14, fontSize: '0.55rem', '& .MuiChip-label': { px: 0.5 } }}
+                />
+              )}
+              {starredHintName && (
+                <Tooltip title={`Clicking loads ${starredHintName} (starred descendant)`}>
+                  <Chip
+                    icon={<StarIcon sx={{ fontSize: 12, color: '#f5a623 !important' }} />}
+                    label={`→ ${starredHintName}`}
+                    size="small"
+                    variant="outlined"
+                    sx={{
+                      height: 14,
+                      fontSize: '0.55rem',
+                      borderColor: '#f5a623',
+                      color: '#a0670f',
+                      '& .MuiChip-label': { px: 0.5 },
+                    }}
+                  />
+                </Tooltip>
+              )}
+              {isLoading && <CircularProgress size={12} />}
+              {isActive && !isLoading && (
+                <Chip
+                  label={inPrimary && inSecondary ? 'A + B' : inPrimary ? 'A' : 'B'}
+                  size="small" color="primary"
+                  sx={{ height: 16, fontSize: '0.6rem', minWidth: 28 }}
+                />
+              )}
+            </Box>
+          }
+          secondary={
+            <Typography component="span" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.6rem', display: 'block' }}>
+              {entry.description || entry.file}
+            </Typography>
+          }
+        />
+        {/* Star button — re-roots the tree on a child, just toggles flag on a root */}
+        <Tooltip title={entry.starred ? 'Unstar' : (entry.parent ? 'Promote to root (parent becomes its child)' : 'Star this root')}>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onStar(entry.file) }}
+            sx={{ p: 0.5, flexShrink: 0 }}
+          >
+            {entry.starred
+              ? <StarIcon sx={{ fontSize: 16, color: '#f5a623' }} />
+              : <StarBorderIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+            }
+          </IconButton>
+        </Tooltip>
+      </ListItemButton>
+
+      {/* Children */}
+      {hasChildren && isExpanded && children.map((child) => (
+        <EntryRow
+          key={child.id}
+          entry={child}
+          depth={depth + 1}
+          children={byParent.get(child.file) ?? []}
+          byParent={byParent}
+          expanded={expanded}
+          toggleExpanded={toggleExpanded}
+          fileName={fileName}
+          secondaryFileName={secondaryFileName}
+          loadingId={loadingId}
+          onLoad={onLoad}
+          onStar={onStar}
+        />
+      ))}
+    </>
   )
 }

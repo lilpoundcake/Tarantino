@@ -1,0 +1,3 @@
+source: server/api-plugin.ts
+kind: module
+purpose: Vite dev-server middleware plugin exposing /api endpoints — GET /api/dvbfixer-spec (commands), POST /api/dvbfixer/:command (spawns CLI, captures stdout/stderr, auto-moves failed runs into _dvb_failed/, auto-registers successful outputs in structures/index.json), /api/mutations CRUD (lazy pg pool), POST /api/library/star (mark family root), GET /api/status. pg import is lazy so the plugin still loads without a DB.

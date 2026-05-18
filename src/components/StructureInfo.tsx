@@ -57,7 +57,7 @@ export function StructureInfo() {
       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
         Summary
       </Typography>
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mt: 0.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mt: 0.5 }}>
         <StatCard label="Chains" value={chains.length} />
         <StatCard label="Residues" value={totalResidues} />
         <StatCard label="Atoms" value={totalAtoms} />

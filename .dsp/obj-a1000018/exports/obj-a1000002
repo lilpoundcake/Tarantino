@@ -1,0 +1,1 @@
+obj-a1000002 — App.tsx imports DVBFixerPanel and renders it as the 'dvbfixer' panel type in the flexlayout factory.

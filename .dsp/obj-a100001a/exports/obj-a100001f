@@ -1,0 +1,1 @@
+obj-a100001f — vite.config.ts imports apiPlugin and includes it in the plugins array.

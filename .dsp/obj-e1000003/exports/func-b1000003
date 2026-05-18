@@ -1,0 +1,1 @@
+func-b1000003 — useCameraSync uses PluginUIContext and Camera.Snapshot types from molstar deep imports for camera mirroring.

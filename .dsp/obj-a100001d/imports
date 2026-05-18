@@ -1,0 +1,1 @@
+(no imports — standalone bash script using only coreutils + sed + find)

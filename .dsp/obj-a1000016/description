@@ -1,0 +1,3 @@
+source: src/components/AlignmentPanel.tsx
+kind: module
+purpose: Pairwise sequence alignment panel — selects two chains (across primary + secondary viewers, hence cross-structure), runs Needleman-Wunsch BLOSUM62 alignment via alignment.ts, renders aligned residue grid with identity/positive markers, supports click/drag column selection that drives 3D viewer highlights/sticks via molstar-helpers on either A or B side.

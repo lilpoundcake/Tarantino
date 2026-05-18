@@ -1,0 +1,1 @@
+func-b1000003 — useCameraSync reads plugin, secondaryPlugin, cameraSyncEnabled to wire two-way camera mirroring.

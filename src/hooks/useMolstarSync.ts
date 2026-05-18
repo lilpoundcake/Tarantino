@@ -7,9 +7,49 @@ import { clearInterfaceFocus, clearSelectionSticks } from '../lib/molstar-helper
 import { useStructureStore } from '../stores/structureStore'
 import { useSelectionStore, type ResidueId } from '../stores/selectionStore'
 import type { InteractivityManager } from 'molstar/lib/mol-plugin-state/manager/interactivity'
+import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context'
+
+/** Clear ALL 3D-side state on a single plugin. */
+function clearPlugin3DState(plugin: PluginUIContext) {
+  plugin.managers.interactivity.lociSelects.deselectAll()
+  plugin.managers.interactivity.lociHighlights.clearHighlights()
+  plugin.managers.structure.focus.behaviors.current.next(undefined)
+  plugin.managers.structure.focus.clear()
+  clearInterfaceFocus(plugin).catch(() => {})
+  clearSelectionSticks(plugin).catch(() => {})
+}
+
+/**
+ * Empty-click cleanup. Subscribes to the given plugin's click subject and,
+ * on empty loci, performs the SAME global cleanup as single-tab mode —
+ * regardless of which viewer was clicked it wipes 3D state in BOTH viewers
+ * (so the behaviour is identical whether the user has one or two 3D tabs).
+ */
+function attachEmptyClickCleanup(plugin: PluginUIContext) {
+  return plugin.behaviors.interaction.click.subscribe((event) => {
+    if (!Loci.isEmpty(event.current.loci)) return
+    const s = useStructureStore.getState()
+    // 1. 3D state on both viewers
+    if (s.plugin) {
+      clearPlugin3DState(s.plugin)
+      s.plugin.managers.camera.reset(undefined, 0)
+    }
+    if (s.secondaryPlugin && s.secondaryPlugin !== s.plugin) {
+      clearPlugin3DState(s.secondaryPlugin)
+      s.secondaryPlugin.managers.camera.reset(undefined, 0)
+    }
+    // 2. Store flags
+    s.setFocusedChain(null)
+    // 3. Sequence panel selection (the store backing the Sequence component)
+    useSelectionStore.getState().clearSelection()
+    // 4. Panels with local selection state (Alignment) clear theirs too
+    s.fireClearAll()
+  })
+}
 
 export function useMolstarSync() { // @dsp func-b1000001
   const plugin = useStructureStore((s) => s.plugin)
+  const secondaryPlugin = useStructureStore((s) => s.secondaryPlugin)
   const select = useSelectionStore((s) => s.select)
   const hover = useSelectionStore((s) => s.hover)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -86,21 +126,8 @@ export function useMolstarSync() { // @dsp func-b1000001
       }, 50)
     })
 
-    // Click on empty 3D space → force-clear ALL 3D markers (Mol*'s default
-    // selectColor is bright green #33FF1A, so the "green halo" the user sees
-    // is the lociSelects selection marker, NOT only the focus representation).
-    // Be aggressive: clear selection, highlights, and focus state nodes.
-    const clickSub = plugin.behaviors.interaction.click.subscribe((event) => {
-      if (Loci.isEmpty(event.current.loci)) {
-        plugin.managers.interactivity.lociSelects.deselectAll()
-        plugin.managers.interactivity.lociHighlights.clearHighlights()
-        plugin.managers.structure.focus.behaviors.current.next(undefined)
-        plugin.managers.structure.focus.clear()
-        clearInterfaceFocus(plugin).catch(() => {})
-        clearSelectionSticks(plugin).catch(() => {})
-        useStructureStore.getState().setFocusedChain(null)
-      }
-    })
+    // Empty-click cleanup on PRIMARY plugin.
+    const clickSub = attachEmptyClickCleanup(plugin)
 
     return () => {
       if (providerRef.current) {
@@ -112,4 +139,13 @@ export function useMolstarSync() { // @dsp func-b1000001
       clearTimeout(debounceRef.current)
     }
   }, [plugin, select, hover])
+
+  // Secondary viewer (if open) gets its own independent empty-click cleanup.
+  // We only attach the cleanup — NOT the LociMarkProvider or hover sync,
+  // because the secondary viewer is independent of the Sequence panel.
+  useEffect(() => {
+    if (!secondaryPlugin) return
+    const sub = attachEmptyClickCleanup(secondaryPlugin)
+    return () => sub.unsubscribe()
+  }, [secondaryPlugin])
 }

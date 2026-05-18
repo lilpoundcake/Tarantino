@@ -7,17 +7,28 @@ import { PluginCommands } from 'molstar/lib/mol-plugin/commands'
 import { ColorNames } from 'molstar/lib/mol-util/color/names'
 import '../molstar-theme.scss'
 import { TarantinoResidueColorThemeProvider } from '../lib/residue-color-theme'
-import { useStructureStore } from '../stores/structureStore'
+import { useStructureStore, type ViewerSlot } from '../stores/structureStore'
 import { extractChains, extractElements, extractMeta } from '../lib/molstar-helpers'
 
-export function MolstarViewer() { // @dsp obj-a1000004
+interface MolstarViewerProps {
+  /** 'primary' (default) drives all other panels. 'secondary' is an
+   *  independent 3D viewer for comparing structures side-by-side. */
+  slot?: ViewerSlot
+}
+
+export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @dsp obj-a1000004
   const containerRef = useRef<HTMLDivElement>(null)
   const pluginRef = useRef<Awaited<ReturnType<typeof createPluginUI>> | null>(null)
   const setPlugin = useStructureStore((s) => s.setPlugin)
+  const setSecondaryPlugin = useStructureStore((s) => s.setSecondaryPlugin)
   const setChains = useStructureStore((s) => s.setChains)
+  const setSecondaryChains = useStructureStore((s) => s.setSecondaryChains)
   const setElements = useStructureStore((s) => s.setElements)
   const setMeta = useStructureStore((s) => s.setMeta)
   const setError = useStructureStore((s) => s.setError)
+
+  const isPrimary = slot === 'primary'
+  const setPluginForSlot = isPrimary ? setPlugin : setSecondaryPlugin
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -55,7 +66,7 @@ export function MolstarViewer() { // @dsp obj-a1000004
       }
 
       pluginRef.current = plugin
-      setPlugin(plugin)
+      setPluginForSlot(plugin)
 
       // Set 3D viewport background color (official API)
       const renderer = plugin.canvas3d!.props.renderer
@@ -78,7 +89,6 @@ export function MolstarViewer() { // @dsp obj-a1000004
             const tags = cell.transform.tags ?? []
             if (!tags.includes('structure-focus-target-repr') && !tags.includes('structure-focus-surr-repr')) continue
 
-            // Update just the colorTheme in the existing params
             const oldParams = cell.transform.params as any
             if (oldParams?.colorTheme?.name === 'tarantino-residue-type') continue
 
@@ -98,31 +108,59 @@ export function MolstarViewer() { // @dsp obj-a1000004
       let postLoadDone = false
 
       plugin.managers.structure.hierarchy.behaviors.selection.subscribe(() => {
-        if (!cancelled && pluginRef.current) {
-          setChains(extractChains(pluginRef.current))
+        if (cancelled || !pluginRef.current) return
+
+        // The PRIMARY viewer publishes chain/element/meta to the store (drives
+        // Sequence/Elements/Interactions/Info). The SECONDARY viewer publishes
+        // only its chains — needed by the Alignment panel for cross-structure
+        // alignment — but doesn't touch elements/meta/etc.
+        const chains = extractChains(pluginRef.current)
+        if (isPrimary) {
+          setChains(chains)
           setElements(extractElements(pluginRef.current))
           const meta = extractMeta(pluginRef.current)
           setMeta({ name: meta.name, method: meta.method })
+        } else {
+          setSecondaryChains(chains)
+        }
 
-          // Post-load setup — run once when components with representations appear
-          if (!postLoadDone) {
-            const allComps = pluginRef.current.managers.structure.hierarchy.current.structures
-              .flatMap(s => s.components)
-            const readyComps = allComps.filter(c => c.representations.length > 0)
+        // Post-load setup — run once when components with representations appear
+        if (!postLoadDone) {
+          const allComps = pluginRef.current.managers.structure.hierarchy.current.structures
+            .flatMap(s => s.components)
+          const readyComps = allComps.filter(c => c.representations.length > 0)
 
-            if (readyComps.length > 0) {
-              postLoadDone = true
+          if (readyComps.length > 0) {
+            postLoadDone = true
 
-              // Hide water
-              const waterComps = readyComps.filter(c => {
-                const label = (c.cell.obj?.label || c.key || '').toLowerCase()
-                return label.includes('water')
-              })
-              if (waterComps.length > 0) {
-                pluginRef.current.managers.structure.component.toggleVisibility(waterComps)
-              }
-
+            // Hide water
+            const waterComps = readyComps.filter(c => {
+              const label = (c.cell.obj?.label || c.key || '').toLowerCase()
+              return label.includes('water')
+            })
+            if (waterComps.length > 0) {
+              pluginRef.current.managers.structure.component.toggleVisibility(waterComps)
             }
+
+            // Orient camera to PCA axes — same as Mol*'s "Orient Axes" UI button.
+            // SUPPRESS camera sync during this so the snapshot doesn't get mirrored
+            // to the other viewer mid-orientation (which would either fight a
+            // pending orient there, or overwrite its already-correct camera).
+            const pluginNow = pluginRef.current
+            const storeAtLoad = useStructureStore.getState()
+            const wasSyncEnabled = storeAtLoad.cameraSyncEnabled
+            if (wasSyncEnabled) storeAtLoad.setCameraSyncEnabled(false)
+            setTimeout(() => {
+              if (cancelled) return
+              PluginCommands.Camera.OrientAxes(pluginNow)
+                .catch(() => {})
+                .finally(() => {
+                  // Restore sync after the orient animation settles
+                  setTimeout(() => {
+                    if (wasSyncEnabled) useStructureStore.getState().setCameraSyncEnabled(true)
+                  }, 600)
+                })
+            }, 200)
           }
         }
       })
@@ -146,10 +184,13 @@ export function MolstarViewer() { // @dsp obj-a1000004
       if (pluginRef.current) {
         pluginRef.current.dispose()
         pluginRef.current = null
-        setPlugin(null)
+        setPluginForSlot(null)
+        // Clear chains for this slot so AlignmentPanel doesn't list stale entries
+        if (isPrimary) setChains([])
+        else setSecondaryChains([])
       }
     }
-  }, [setPlugin, setChains, setElements, setMeta, setError])
+  }, [setPluginForSlot, setChains, setSecondaryChains, setElements, setMeta, setError, isPrimary])
 
   // Resize observer to handle panel resize
   useEffect(() => {

@@ -1,0 +1,1 @@
+obj-a1000016 — AlignmentPanel uses selectResiduesInViewer, clearSelection, clearHighlight, showSelectionSticks, clearSelectionSticks, focusResiduesInViewer to drive cross-viewer 3D highlight/sticks/focus.

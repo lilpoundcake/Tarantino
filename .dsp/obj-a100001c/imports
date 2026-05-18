@@ -1,0 +1,2 @@
+obj-a100001e — docker-compose.yml resource booted via `docker compose up -d` before launching vite
+(node built-ins — child_process spawn/spawnSync, net — not tracked)

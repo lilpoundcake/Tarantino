@@ -1,0 +1,3 @@
+source: (npm) @types/pg
+kind: external
+purpose: TypeScript type definitions for the pg package — devDependency that provides PoolClient/QueryResult/etc. types referenced by server/api-plugin.ts.

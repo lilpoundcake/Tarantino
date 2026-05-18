@@ -6,7 +6,8 @@
     "organism": "Crambe hispanica",
     "chains": 1,
     "residues": 46,
-    "description": "Small plant protein, classic X-ray crystallography target"
+    "description": "Small plant protein, classic X-ray crystallography target",
+    "starred": false
   },
   {
     "id": "1ubq",
@@ -15,7 +16,8 @@
     "organism": "Homo sapiens",
     "chains": 1,
     "residues": 76,
-    "description": "Regulatory protein involved in protein degradation"
+    "description": "Regulatory protein involved in protein degradation",
+    "starred": false
   },
   {
     "id": "4hhb",
@@ -24,7 +26,8 @@
     "organism": "Homo sapiens",
     "chains": 4,
     "residues": 574,
-    "description": "Oxygen transport protein with 4 subunits (alpha2-beta2)"
+    "description": "Oxygen transport protein with 4 subunits (alpha2-beta2)",
+    "starred": false
   },
   {
     "id": "1bna",
@@ -33,6 +36,73 @@
     "organism": "Synthetic",
     "chains": 2,
     "residues": 24,
-    "description": "Classic B-form DNA double helix (CGCGAATTCGCG)"
+    "description": "Classic B-form DNA double helix (CGCGAATTCGCG)",
+    "starred": false
+  },
+  {
+    "id": "3ry6.pdb",
+    "file": "3ry6.pdb",
+    "name": "3RY6",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "",
+    "starred": false,
+    "parent": "dvb_minimize_2026-05-18T21-09-43/3ry6_model_glycam_prepare_minimize.pdb"
+  },
+  {
+    "id": "dvb_model_2026-05-18T21-49-04/3wjj_model.pdb",
+    "file": "dvb_model_2026-05-18T21-49-04/3wjj_model.pdb",
+    "name": "3wjj → model",
+    "parent": "3wjj.pdb",
+    "command": "model",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "DVBFixer model · 19.05.2026, 00:50:22"
+  },
+  {
+    "id": "dvb_glycam_2026-05-18T21-52-53/3wjj_model_glycam.pdb",
+    "file": "dvb_glycam_2026-05-18T21-52-53/3wjj_model_glycam.pdb",
+    "name": "3wjj_model → glycam",
+    "parent": "dvb_model_2026-05-18T21-49-04/3wjj_model.pdb",
+    "command": "glycam",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "DVBFixer glycam · 19.05.2026, 00:52:53"
+  },
+  {
+    "id": "dvb_prepare_2026-05-18T21-54-18/3wjj_model_glycam_prepare.pdb",
+    "file": "dvb_prepare_2026-05-18T21-54-18/3wjj_model_glycam_prepare.pdb",
+    "name": "3wjj_model_glycam → prepare",
+    "parent": "dvb_glycam_2026-05-18T21-52-53/3wjj_model_glycam.pdb",
+    "command": "prepare",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "DVBFixer prepare · 19.05.2026, 00:54:26"
+  },
+  {
+    "id": "dvb_minimize_2026-05-18T21-57-45/3wjj_model_glycam_prepare_minimize.pdb",
+    "file": "dvb_minimize_2026-05-18T21-57-45/3wjj_model_glycam_prepare_minimize.pdb",
+    "name": "3wjj_model_glycam_prepare → minimize",
+    "parent": "dvb_prepare_2026-05-18T21-54-18/3wjj_model_glycam_prepare.pdb",
+    "command": "minimize",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "DVBFixer minimize · 19.05.2026, 00:57:52"
+  },
+  {
+    "id": "dvb_glycam_2026-05-18T22-01-08/3wjj_model_glycam_prepare_minimize_glycam.pdb",
+    "file": "dvb_glycam_2026-05-18T22-01-08/3wjj_model_glycam_prepare_minimize_glycam.pdb",
+    "name": "3wjj_model_glycam_prepare_minimize → glycam",
+    "parent": "dvb_minimize_2026-05-18T21-57-45/3wjj_model_glycam_prepare_minimize.pdb",
+    "command": "glycam",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "DVBFixer glycam · 19.05.2026, 01:01:08"
   }
 ]

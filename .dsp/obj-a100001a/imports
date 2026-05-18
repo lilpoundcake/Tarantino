@@ -1,0 +1,4 @@
+obj-a100001b — COMMANDS array + FlagDef/CommandDef types from dvbfixer-spec for building CLI args from request body and serving spec to frontend
+obj-e100000c — pg (lazy-imported) for Pool connecting to DATABASE_URL and querying mutations table
+(node built-ins — node:child_process spawn, node:path, node:fs, node:http types — not tracked as DSP entities)
+(vite — Plugin and ViteDevServer types only, not tracked)

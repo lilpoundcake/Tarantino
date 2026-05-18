@@ -1,0 +1,1 @@
+obj-a1000002 — App.tsx imports AlignmentPanel and renders it as the 'alignment' panel type in the flexlayout factory.

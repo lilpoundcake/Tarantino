@@ -10,3 +10,9 @@ extractChains(plugin) — iterates structure units to extract chain IDs, entity 
 extractElements(plugin) — extracts per-chain element info with entity type, comp IDs, atom/residue counts
 extractMeta(plugin) — extracts structure name from model entry ID
 selectChainInViewer(plugin, chainId) — selects and focuses an entire chain in the 3D viewer
+showSticksForLoci(plugin, loci, tag, label) — shared builder; adds StructureSelectionFromBundle + StructureRepresentation3D ball-and-stick tagged with the given tag (replaces prior nodes with same tag)
+deleteCellsByTag(plugin, tag) — deletes state-tree nodes by tag
+focusInterfaceForChain(plugin, chainId, category, radius=5) — builds the contact MolScript (chain X residues within 5 Å of any non-self atom ∪ partner-side residues within 5 Å of chain X), entity-type-aware self detection; renders as 'tarantino-interface' sticks and focusSphere
+clearInterfaceFocus(plugin) — deletes 'tarantino-interface' sticks
+showSelectionSticks(plugin, residues) — renders sequence-selection ball-and-stick tagged 'tarantino-selection'
+clearSelectionSticks(plugin) — deletes 'tarantino-selection' sticks

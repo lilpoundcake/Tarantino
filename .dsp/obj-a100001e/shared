@@ -1,0 +1,2 @@
+db service — postgres:16-alpine on localhost:5432 with credentials tarantino/tarantino/tarantino. Healthcheck via pg_isready.
+tarantino-pg-data volume — persists database files across container restarts.

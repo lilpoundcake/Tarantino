@@ -1,0 +1,1 @@
+obj-a1000002 — App.tsx imports MutationsPanel and renders it as the 'mutations' panel type in the flexlayout factory.

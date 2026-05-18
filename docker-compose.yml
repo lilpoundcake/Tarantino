@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tarantino-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tarantino
+      POSTGRES_PASSWORD: tarantino
+      POSTGRES_DB: tarantino
+    ports:
+      - "5432:5432"
+    volumes:
+      - tarantino-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tarantino -d tarantino"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+volumes:
+  tarantino-pg-data:
