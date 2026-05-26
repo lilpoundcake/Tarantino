@@ -5,10 +5,11 @@ import { DefaultPluginUISpec } from 'molstar/lib/mol-plugin-ui/spec'
 import { PluginConfig } from 'molstar/lib/mol-plugin/config'
 import { PluginCommands } from 'molstar/lib/mol-plugin/commands'
 import { ColorNames } from 'molstar/lib/mol-util/color/names'
+import { createStructureRepresentationParams } from 'molstar/lib/mol-plugin-state/helpers/structure-representation-params'
 import '../molstar-theme.scss'
 import { TarantinoResidueColorThemeProvider } from '../lib/residue-color-theme'
 import { useStructureStore, type ViewerSlot } from '../stores/structureStore'
-import { extractChains, extractElements, extractMeta } from '../lib/molstar-helpers'
+import { extractChains, extractElements, extractMeta, getFirstStructure } from '../lib/molstar-helpers'
 
 interface MolstarViewerProps {
   /** 'primary' (default) drives all other panels. 'secondary' is an
@@ -148,6 +149,31 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
             })
             if (waterComps.length > 0) {
               pluginRef.current.managers.structure.component.toggleVisibility(waterComps)
+            }
+
+            // Render ions as Van der Waals spheres (spacefill). Mol*'s
+            // default preset shows ions as a tiny ball-and-stick which is
+            // barely visible — spacefill + the physical size theme uses
+            // each element's VdW radius, giving a properly-sized colored
+            // sphere per ion.
+            const ionComps = readyComps.filter(c => {
+              const label = (c.cell.obj?.label || c.key || '').toLowerCase()
+              return label.includes('ion')
+            })
+            if (ionComps.length > 0) {
+              const structureData = getFirstStructure(pluginRef.current)
+              if (structureData) {
+                const spacefillParams = createStructureRepresentationParams(pluginRef.current, structureData, {
+                  type: 'spacefill',
+                })
+                const update = pluginRef.current.state.data.build()
+                for (const comp of ionComps) {
+                  for (const repr of comp.representations) {
+                    update.to(repr.cell.transform.ref).update(spacefillParams)
+                  }
+                }
+                pluginRef.current.runTask(pluginRef.current.state.data.updateTree(update)).catch(() => {})
+              }
             }
 
             // Orient camera to PCA axes — same as Mol*'s "Orient Axes" UI button.

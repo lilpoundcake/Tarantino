@@ -99,8 +99,14 @@ independent `PluginUIContext`. Both plugins are kept in `structureStore`
 publishes only its chains (for cross-structure Alignment) — it doesn't touch
 elements / meta / Interactions.
 
-Post-load, each viewer auto-runs `PluginCommands.Camera.OrientAxes` to face
-the principal axis; camera sync is temporarily disabled during this orient.
+Post-load, each viewer (a) hides the water component, (b) swaps the **ion**
+component's default ball-and-stick representation for `spacefill` so each ion
+renders as a Van der Waals sphere — `createStructureRepresentationParams(plugin,
+structure, { type: 'spacefill' })` is built once and `.update()`ed into every
+ion-component repr cell, then `runTask(updateTree())`. The default `physical`
+size theme uses each element's VdW radius. (c) auto-runs
+`PluginCommands.Camera.OrientAxes` to face the principal axis; camera sync is
+temporarily disabled during this orient.
 
 ### Camera Sync (`src/hooks/useCameraSync.ts`)
 
@@ -220,8 +226,8 @@ per chain, then merges in **SEQRES residues missing from ATOM** by looking up
 and walking its `seqId.value(i)` / `compId.value(i)` columns. Each residue gets
 a `present: boolean` — `true` if it has coordinates, `false` if SEQRES-only.
 
-Both `SequenceViewer` and `ChainSelector` filter the store's `chains` through
-the same pipeline:
+`SequenceViewer`, `ChainSelector`, **and** `AlignmentPanel`'s chain picker all
+apply the same filter pipeline to the store's `chains`:
 1. Strip water/ion residues (HOH/ZN/MG/...) from each chain's residue list.
 2. Drop chains with ≤ 1 residue left.
 3. Drop chains where **every** residue's `threeToOne()` is `'X'` — typically
@@ -250,7 +256,9 @@ aligned strings + `|` / `:` / `.` / ` ` annotation + identity / similarity /
 score / length.
 
 `AlignmentPanel.tsx`: two chain pickers (A / B) grouped by source ('A' =
-primary viewer chains, 'B' = secondary viewer chains). Drag-select per side;
+primary viewer chains, 'B' = secondary viewer chains); each source's chains
+go through the all-X / length / alphabetic-sort filter described in the
+Sequence Panel section. Drag-select per side;
 mouseup commits and pushes to the corresponding plugin via
 `selectResiduesInViewer` + `showSelectionSticks`. The number row above/below
 each sequence is clickable — picking any column toggles residues on BOTH
@@ -361,7 +369,7 @@ src/
   index.css, molstar-theme.scss # FlexLayout vars + Mol* SCSS skin
 
   components/
-    MolstarViewer.tsx           # Mol* init per slot, color theme registration, OrientAxes post-load
+    MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes)
     SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init
     StructureLibrary.tsx        # Tree of structures, starring, A/B slot toggle, hint chip (gated on depth+!starred only)
     StructureInfo.tsx           # Editable metadata + stats

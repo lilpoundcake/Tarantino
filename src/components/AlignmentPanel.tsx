@@ -74,15 +74,24 @@ export function AlignmentPanel() {
     const out: ChainOption[] = []
     const make = (source: ChainSource, fileName: string | null, chains: typeof primaryChains) => {
       const label = fileName || (source === 'A' ? '(no structure A)' : '(no structure B)')
+      const accepted: ChainOption[] = []
       for (const c of chains) {
         const residues = c.residues.filter(r => !NON_SEQ.has(r.compId))
         if (residues.length < 2) continue
-        out.push({
+        // Drop chains whose residues are all unknown 1-letter codes ('X')
+        // — glycans (NAG / BMA / MAN / ...) and other non-polypeptide chains
+        // that snuck into the polymer list. Their "sequence" would just be
+        // a row of X's, useless for alignment.
+        if (!residues.some(r => threeToOne(r.compId) !== 'X')) continue
+        accepted.push({
           source, fileName: label, chainId: c.id,
           key: `${source}:${label}:${c.id}`,
           residues, aaCount: residues.length,
         })
       }
+      // Sort by chain id so the picker shows A, B, C, ...
+      accepted.sort((x, y) => x.chainId.localeCompare(y.chainId, undefined, { numeric: true, sensitivity: 'base' }))
+      out.push(...accepted)
     }
     make('A', primaryFile, primaryChains)
     make('B', secondaryFile, secondaryChains)
