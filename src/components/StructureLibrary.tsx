@@ -326,11 +326,14 @@ function EntryRow({
   const hasChildren = children.length > 0
   const isExpanded = expanded.has(entry.file)
 
-  // For a family ROOT (depth 0, no parent), find a starred descendant for
-  // the hint chip. Only shown at the root level — children inside an
-  // already-expanded subtree don't need the hint since the star is visible.
+  // For a family ROOT (depth 0), find a starred descendant for the hint
+  // chip. NB: we deliberately DON'T require `!entry.parent` — an entry can
+  // become a tree root even with a non-empty `parent` field if that parent
+  // file doesn't exist on disk (an orphan reference, usually leftover from
+  // an old buggy star/swap). Hiding the chip in that case made the bug
+  // invisible to the user. The vite scanner now also auto-cleans these.
   let starredHintName = starredDescendantName ?? null
-  if (depth === 0 && !entry.parent && !entry.starred && !starredHintName) {
+  if (depth === 0 && !entry.starred && !starredHintName) {
     const stack: StructureEntry[] = [...children]
     const seen = new Set<string>()
     while (stack.length > 0) {

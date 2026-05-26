@@ -2,6 +2,7 @@ import FormControl from '@mui/material/FormControl'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import { useStructureStore } from '../stores/structureStore'
+import { threeToOne } from '../lib/residue-codes'
 
 const NON_SEQ_COMPS = new Set([
   'HOH', 'WAT', 'DOD', 'H2O',
@@ -15,6 +16,14 @@ export function ChainSelector({ value, onChange }: { value?: string | null; onCh
   const chains = allChains
     .map(c => ({ ...c, residues: c.residues.filter(r => !NON_SEQ_COMPS.has(r.compId)) }))
     .filter(c => c.residues.length > 1)
+    // Drop chains whose residues are all unknown (1-letter = 'X') —
+    // typically glycans (NAG / BMA / MAN / ...), heme groups, etc.
+    // Their "sequence" would just be a row of X's so they don't belong
+    // in the Sequence panel's chain dropdown.
+    .filter(c => c.residues.some(r => threeToOne(r.compId) !== 'X'))
+    // Sort by chain id so users see A, B, C, ... regardless of the
+    // order Mol* discovered them in.
+    .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' }))
 
   if (chains.length <= 1) return null
 

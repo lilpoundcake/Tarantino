@@ -30,13 +30,19 @@ const NON_SEQ_COMPS = new Set([
   'CL', 'BR', 'SO4', 'PO4', 'NO3', 'CD', 'HG', 'SR', 'BA',
 ])
 
-function getSequenceChains(allChains: Array<{ id: string; entityId: string; residues: Array<{ seqId: number; compId: string }> }>) {
+function getSequenceChains(allChains: Array<{ id: string; entityId: string; residues: Array<{ seqId: number; compId: string; present?: boolean }> }>) {
   return allChains
     .map(chain => ({
       ...chain,
       residues: chain.residues.filter(r => !NON_SEQ_COMPS.has(r.compId)),
     }))
     .filter(chain => chain.residues.length > 1)
+    // Drop chains whose residues are all unknown (1-letter code 'X') —
+    // typically glycans (NAG / BMA / MAN / ...) and other non-polypeptide
+    // chains that snuck into the polymer list with a chain id assigned.
+    // The Sequence panel only makes sense for polypeptide / nucleotide
+    // chains where threeToOne returns real letters.
+    .filter(chain => chain.residues.some(r => threeToOne(r.compId) !== 'X'))
 }
 
 export function SequenceViewer({ initialChainId }: { initialChainId?: string } = {}) { // @dsp obj-a1000006
@@ -46,12 +52,18 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
   const [localChainId, setLocalChainId] = useState<string | null>(initialChainId ?? null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Initialize local chain from global on first load, or when chains change and local is invalid
+  // Initialize local chain from global on first load, or when chains change and local is invalid.
+  // IMPORTANT: globalChainId comes from the store's UNFILTERED chains[0], which may be a
+  // glycan / non-polypeptide chain that's removed by getSequenceChains. So we must validate
+  // every candidate (initialChainId, globalChainId) against the filtered list — otherwise the
+  // panel silently shows blank and the user has to pick a chain manually.
   useEffect(() => {
-    if (chains.length > 0 && (!localChainId || !chains.find(c => c.id === localChainId))) {
-      setLocalChainId(initialChainId ?? globalChainId ?? chains[0].id)
-    }
-  }, [chains, initialChainId])
+    if (chains.length === 0) return
+    if (localChainId && chains.find(c => c.id === localChainId)) return
+    const candidates = [initialChainId, globalChainId].filter(Boolean) as string[]
+    const valid = candidates.find(id => chains.find(c => c.id === id))
+    setLocalChainId(valid ?? chains[0].id)
+  }, [chains, initialChainId, globalChainId])
 
   const activeChainId = localChainId
   const [dragStart, setDragStart] = useState<number | null>(null)
@@ -262,16 +274,23 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
                     hoveredResidue.seqId === r.seqId
                   const rClass = residueClass(oneLetterCode)
                   const baseColor = CLASS_COLORS[rClass] ?? CLASS_COLORS.other
+                  // Present === false means the residue is in the SEQRES
+                  // block of the PDB but has no atomic coordinates (missing
+                  // loop / terminus). Render it grayed-out with a dashed
+                  // border so the user can see the gap.
+                  const isMissing = r.present === false
 
                   let bg = 'transparent'
-                  let textColor = baseColor
-                  let border = '1px solid transparent'
+                  let textColor = isMissing ? '#b5bfcc' : baseColor
+                  let border = isMissing
+                    ? '1px dashed #b5bfcc'
+                    : '1px solid transparent'
 
-                  if (isSelected) {
+                  if (isSelected && !isMissing) {
                     bg = '#4a76c4'
                     textColor = '#ffffff'
                     border = '1px solid #4a76c4'
-                  } else if (isHovered) {
+                  } else if (isHovered && !isMissing) {
                     bg = '#e8eaf6'
                     textColor = '#1a1a2e'
                     border = '1px solid #4a76c4'
@@ -306,12 +325,19 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
                       }}>
                         {r.seqId}
                       </span>
-                      <Tooltip title={`${r.compId} ${r.seqId} (${rClass})`} placement="top" enterDelay={300}>
+                      <Tooltip
+                        title={isMissing
+                          ? `${r.compId} ${r.seqId} (${rClass}) — declared in SEQRES, missing from structure`
+                          : `${r.compId} ${r.seqId} (${rClass})`
+                        }
+                        placement="top"
+                        enterDelay={300}
+                      >
                         <span
                           data-seq={r.seqId}
-                          onMouseDown={() => handleMouseDown(r.seqId)}
-                          onMouseMove={() => handleMouseMove(r.seqId)}
-                          onMouseUp={() => handleMouseUp(r.seqId)}
+                          onMouseDown={isMissing ? undefined : () => handleMouseDown(r.seqId)}
+                          onMouseMove={isMissing ? undefined : () => handleMouseMove(r.seqId)}
+                          onMouseUp={isMissing ? undefined : () => handleMouseUp(r.seqId)}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -319,8 +345,9 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
                             width: CELL_W,
                             height: 18,
                             fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
+                            fontWeight: isMissing ? 400 : 600,
+                            fontStyle: isMissing ? 'italic' : 'normal',
+                            cursor: isMissing ? 'not-allowed' : 'pointer',
                             backgroundColor: bg,
                             color: textColor,
                             borderRadius: 2,

@@ -132,6 +132,10 @@ export interface ChainData {
   residues: Array<{
     seqId: number
     compId: string
+    /** False if the residue is in the SEQRES block but missing from the
+     *  ATOM records (disordered loop, missing terminus, etc.). True for
+     *  residues with actual atomic coordinates. */
+    present: boolean
   }>
 }
 
@@ -142,6 +146,7 @@ export function extractChains(plugin: PluginUIContext): ChainData[] {
   const chainsMap = new Map<string, ChainData>()
   const loc = StructureElement.Location.create(structure)
 
+  // 1) ATOM-present residues per chain
   for (let i = 0, il = structure.units.length; i < il; i++) {
     const unit = structure.units[i]
     const { elements } = unit
@@ -166,7 +171,50 @@ export function extractChains(plugin: PluginUIContext): ChainData[] {
 
       const chain = chainsMap.get(chainId)!
       if (!chain.residues.some(r => r.seqId === seqId)) {
-        chain.residues.push({ seqId, compId })
+        chain.residues.push({ seqId, compId, present: true })
+      }
+    }
+  }
+
+  // 2) Merge in SEQRES residues (declared in the PDB but missing from ATOM
+  //    records — disordered loops, missing termini, etc.). Mark present:false.
+  //    SEQRES lives on the model per entity. Many file types include this
+  //    (mmCIF entity_poly_seq, PDB SEQRES); files without it fall through
+  //    untouched.
+  const model = structure.models[0]
+  if (model) {
+    for (const chain of chainsMap.values()) {
+      try {
+        const entityIndex = model.entities.getEntityIndex(chain.entityId)
+        if (entityIndex < 0) continue
+        const seqEntity = (model.sequence as any).byEntityKey?.[entityIndex]
+        if (!seqEntity?.sequence) continue
+        const seq = seqEntity.sequence
+        const presentSeqIds = new Set(chain.residues.map(r => r.seqId))
+        const merged: ChainData['residues'] = []
+        const seqLength: number = seq.length ?? 0
+        for (let i = 0; i < seqLength; i++) {
+          const sid = seq.seqId.value(i) as number
+          const cid = seq.compId.value(i) as string
+          if (!Number.isFinite(sid) || sid <= 0) continue
+          if (presentSeqIds.has(sid)) {
+            // Use the ATOM-derived comp (may differ for non-canonicals like
+            // MSE/SEP) and keep present:true.
+            const existing = chain.residues.find(r => r.seqId === sid)!
+            merged.push(existing)
+            presentSeqIds.delete(sid)
+          } else {
+            merged.push({ seqId: sid, compId: cid, present: false })
+          }
+        }
+        // Any ATOM-present residues whose seqId isn't in SEQRES (e.g.
+        // het-atoms, modified terminals) get appended at the end.
+        for (const r of chain.residues) {
+          if (presentSeqIds.has(r.seqId)) merged.push(r)
+        }
+        chain.residues = merged
+      } catch {
+        // If anything in the SEQRES lookup fails, keep the ATOM-only list.
       }
     }
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tabs from '@mui/material/Tabs'
@@ -107,17 +107,39 @@ export function DVBFixerPanel() {
       .then(r => r.ok ? r.json() : [])
       .then((data: StructureEntry[]) => {
         setStructures(data)
-        // pick a sensible default input
-        if (data.length > 0 && !inputFile) {
-          // Prefer a .pdb file not in a dvb_ subdir
-          const pick = data.find(d => !d.file.startsWith('dvb_')) ?? data[0]
-          setInputFile(pick.file)
-        }
       })
       .catch(() => {})
-  }, [inputFile])
+  }, [])
 
   useEffect(() => { refreshStructures() }, [refreshStructures])
+
+  // Keep the input dropdown in sync with the currently-loaded structure in
+  // the PRIMARY 3D viewer. When the user loads / switches structures, the
+  // DVBFixer input auto-updates to match. The user can still pick something
+  // else from the dropdown manually.
+  const primaryFileName = useStructureStore((s) => s.fileName)
+  const userPickedInputRef = useRef(false)
+  useEffect(() => {
+    if (!primaryFileName) return
+    // Only auto-sync if the user hasn't manually picked something different.
+    if (!userPickedInputRef.current || inputFile === '') {
+      setInputFile(primaryFileName)
+    }
+  }, [primaryFileName, inputFile])
+
+  // Fallback default on first load if there's no primary structure: pick
+  // a non-dvb root file.
+  useEffect(() => {
+    if (inputFile === '' && structures.length > 0 && !primaryFileName) {
+      const pick = structures.find(d => !d.file.startsWith('dvb_')) ?? structures[0]
+      setInputFile(pick.file)
+    }
+  }, [structures, inputFile, primaryFileName])
+
+  const handleInputFileChange = useCallback((file: string) => {
+    userPickedInputRef.current = true
+    setInputFile(file)
+  }, [])
 
   const activeCmd = commands[tabIdx]
   const activeValues = activeCmd ? values[activeCmd.name] ?? {} : {}
@@ -143,6 +165,29 @@ export function DVBFixerPanel() {
         if (body.stdout || body.stderr) setResult(body as RunResult)
       } else {
         setResult(body as RunResult)
+        // Auto-load the freshly-produced output into the PRIMARY 3D viewer.
+        const outputFile = body.outputFile
+        const plugin = useStructureStore.getState().plugin
+        if (plugin && outputFile) {
+          try {
+            const fileRes = await fetch(`/structures/${encodeURI(outputFile)}`)
+            if (fileRes.ok) {
+              const text = await fileRes.text()
+              const format = outputFile.endsWith('.cif') || outputFile.endsWith('.mmcif') ? 'mmcif' : 'pdb'
+              await plugin.clear()
+              const data = await plugin.builders.data.rawData({ data: text, label: outputFile })
+              const trajectory = await plugin.builders.structure.parseTrajectory(data, format as any)
+              await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default')
+              useStructureStore.getState().setFileName(outputFile)
+              // The newly loaded structure also becomes the next DVBFixer
+              // input (so the user can chain commands without re-picking).
+              userPickedInputRef.current = false
+              setInputFile(outputFile)
+            }
+          } catch (loadErr) {
+            console.warn('[dvbfixer] auto-load output failed:', loadErr)
+          }
+        }
       }
       // Refresh local input list + notify other components (Library) to refetch
       setTimeout(refreshStructures, 200)
@@ -204,7 +249,7 @@ export function DVBFixerPanel() {
                 <Select
                   label="Input file"
                   value={inputFile}
-                  onChange={(e) => setInputFile(e.target.value)}
+                  onChange={(e) => handleInputFileChange(e.target.value)}
                   sx={{ fontSize: '0.75rem' }}
                 >
                   {inputOptions.map(s => (

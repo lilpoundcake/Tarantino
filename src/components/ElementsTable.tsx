@@ -196,6 +196,18 @@ export function ElementsTable() {
     plugin.managers.interactivity.lociSelects.deselectAll()
     plugin.managers.interactivity.lociSelects.select({ loci })
     plugin.managers.structure.focus.setFromLoci(loci)
+
+    // Actually move the camera to the chain. If the secondary viewer is open
+    // and sync is on, the snapshot would mirror over and overwrite its
+    // independent camera — temporarily suppress sync, then restore it after
+    // the camera animation settles.
+    const store = useStructureStore.getState()
+    const needSyncSuppression = !!store.secondaryPlugin && store.cameraSyncEnabled
+    if (needSyncSuppression) store.setCameraSyncEnabled(false)
+    plugin.managers.camera.focusLoci(loci)
+    if (needSyncSuppression) {
+      setTimeout(() => useStructureStore.getState().setCameraSyncEnabled(true), 500)
+    }
   }, [plugin, clearStoreSelection])
 
 

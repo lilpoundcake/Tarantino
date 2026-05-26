@@ -32,11 +32,13 @@ a dockable multi-panel workspace:
 - **3D Structure (primary + optional secondary)**: two independent Mol*
   viewers with optional camera sync between them
 - **Sequence**: amino acid sequence with residue-type coloring, drag-to-select,
-  per-panel chain selection
+  per-panel chain selection; SEQRES residues missing from ATOM coords are
+  rendered greyed-out + dashed-border + italic and are not interactive
 - **Alignment**: pairwise Needleman-Wunsch (BLOSUM62) alignment between any
   two chains, including across two different loaded structures
 - **Elements**: tree of polymers / ligands / ions / water with per-component
-  visibility + per-chain **Show Interface**
+  visibility + per-chain **Show Interface**; clicking a row focuses the
+  camera on that element
 - **Interactions**: computed H-bonds, ionic, cation-pi, pi-stacking, halogen,
   hydrophobic, metal coordination, disulfide, covalent
 - **DVBFixer**: form-driven UI for the DVBFixer CLI (split / renumber / model /
@@ -115,7 +117,9 @@ mirroring.
 has a custom Vite plugin (`serve-structures`) that recursively scans
 subfolders, **skips `.*` and `_*` directories**, and merges `index.json`
 entries with auto-detected files. It also **auto-prunes** stale `index.json`
-entries whose file no longer exists on disk.
+entries whose file no longer exists on disk and **strips orphan `parent`
+references** (parent file deleted but child still alive) so orphaned children
+become roots and can display the starred-descendant hint chip.
 
 Entries can have a `parent` field pointing to another entry's `file`. The
 `StructureLibrary` component renders the result as an expandable tree
@@ -129,6 +133,9 @@ Starring: each row has a star icon.
 - When the user clicks a **family root** that has no `starred` itself but a
   descendant is starred, the library loads the starred descendant instead.
 - The family root row shows an orange `⭐ → <name>` hint chip in that case.
+  The hint chip is gated on `depth === 0 && !entry.starred` only — `entry.parent`
+  is NOT checked, so even an entry that *was* a child but became a root via
+  orphan-parent cleanup still gets the chip.
 
 **Per-entry metadata** — each library entry's `name`, `organism`, `method`,
 `resolution`, `description` are persisted in `index.json` and edited via
@@ -205,6 +212,36 @@ HID/HIE/HIP → H, SEP → S, MSE → M, etc.); `toCanonicalThree()` maps back.
 
 `selectionStore._lock` (expires after 200 ms) prevents infinite update loops.
 
+### Sequence Panel (`src/components/SequenceViewer.tsx`, `src/components/ChainSelector.tsx`)
+
+`extractChains` in `molstar-helpers.ts` walks ATOM records to collect residues
+per chain, then merges in **SEQRES residues missing from ATOM** by looking up
+`model.sequence.byEntityKey[entityIndex]` (via `model.entities.getEntityIndex(entityId)`)
+and walking its `seqId.value(i)` / `compId.value(i)` columns. Each residue gets
+a `present: boolean` — `true` if it has coordinates, `false` if SEQRES-only.
+
+Both `SequenceViewer` and `ChainSelector` filter the store's `chains` through
+the same pipeline:
+1. Strip water/ion residues (HOH/ZN/MG/...) from each chain's residue list.
+2. Drop chains with ≤ 1 residue left.
+3. Drop chains where **every** residue's `threeToOne()` is `'X'` — typically
+   glycans (NAG / BMA / MAN) or other non-polypeptide chains that got assigned
+   a chain id by Mol*'s polymer-classifier. Without this filter the dropdown
+   shows chains whose "sequence" is just a row of X's.
+4. Sort chains alphabetically via `localeCompare(..., { numeric: true, sensitivity: 'base' })`.
+
+`SequenceViewer`'s chain-init effect **validates every fallback candidate** against
+its filtered `chains` list. The store's `activeChainId` is set to `chains[0].id` of
+the *unfiltered* chains, which can be a glycan filtered out by step 3 — using it
+blindly would silently leave `activeChain` undefined and render a blank pane.
+Fix: try `[initialChainId, globalChainId]` in order, accept the first that exists
+in the filtered list, otherwise fall back to filtered `chains[0].id`.
+
+Missing residues render with greyed text (`#b5bfcc`), dashed border, italic font,
+and `cursor: not-allowed`; mouse handlers are nulled out so they can't be selected
+or hovered. Tooltip reads `"<RES> <seqId> (<class>) — declared in SEQRES, missing
+from structure"`.
+
 ### Alignment Panel (`src/components/AlignmentPanel.tsx`, `src/lib/alignment.ts`)
 
 `alignment.ts` is pure-TS Needleman-Wunsch with BLOSUM62 (alphabet
@@ -237,6 +274,18 @@ sub-command), input file picker filtered from `structures/index.json`, flag
 form auto-generated from the spec fetched at runtime from `GET /api/dvbfixer-spec`.
 Per-flag controls map by `type`: bool → Checkbox, select → Select,
 number/text → TextField.
+
+**Auto-paste input** — the input picker tracks `structureStore.fileName`
+(currently-loaded primary structure). Whenever the user hasn't manually picked
+an input yet (`userPickedInputRef.current === false`) OR the current selection
+is empty, the picker mirrors the active structure. Selecting from the dropdown
+sets `userPickedInputRef.current = true` and stops the auto-mirror.
+
+**Auto-open output** — on successful run, the panel `await plugin.clear()`s the
+primary viewer and loads the output file directly (`rawData` → `parseTrajectory`
+→ `applyPreset('default')`), bumps `libraryVersion`, sets `fileName` to the
+output, and resets `userPickedInputRef` so the next run's input mirrors the new
+active structure. Failures leave the viewer untouched.
 
 **Backend** (`server/api-plugin.ts`, a Vite middleware plugin):
 - `GET /api/dvbfixer-spec` — returns `COMMANDS` from `server/dvbfixer-spec.ts`.
@@ -313,16 +362,16 @@ src/
 
   components/
     MolstarViewer.tsx           # Mol* init per slot, color theme registration, OrientAxes post-load
-    SequenceViewer.tsx          # Monospace residue grid, drag-select
-    StructureLibrary.tsx        # Tree of structures, starring, A/B slot toggle, hint chip
+    SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init
+    StructureLibrary.tsx        # Tree of structures, starring, A/B slot toggle, hint chip (gated on depth+!starred only)
     StructureInfo.tsx           # Editable metadata + stats
-    ElementsTable.tsx           # Tree, visibility toggles, "Show Interface"
+    ElementsTable.tsx           # Tree, visibility toggles, row-click camera focus (sync-suppressed), "Show Interface"
     InteractionsPanel.tsx       # Computed contacts, focused-chain banner
     AlignmentPanel.tsx          # Pairwise NW alignment, per-source plugin routing
-    DVBFixerPanel.tsx           # MUI Tabs, form generated from /api/dvbfixer-spec
+    DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
     MutationsPanel.tsx          # DataGrid backed by /api/mutations
     FileLoader.tsx              # Upload button (honors loadTargetSlot)
-    ChainSelector.tsx           # Chain dropdown
+    ChainSelector.tsx           # Chain dropdown (same filter+sort as SequenceViewer)
 
   hooks/
     useMolstarSync.ts           # 3D → sequence + empty-click cleanup on both viewers
@@ -334,7 +383,7 @@ src/
     selectionStore.ts           # selected/hovered residues, _lock mechanism
 
   lib/
-    molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractors
+    molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (with SEQRES merge + present flag)
     alignment.ts                # Needleman-Wunsch + BLOSUM62 (pure TS)
     residue-codes.ts            # 3-to-1 letter code (incl. non-canonical)
     residue-color-theme.ts      # Mol* ColorTheme: carbons by residue class, others CPK
@@ -350,5 +399,5 @@ scripts/
 
 structures/                     # Manifest (index.json with parent/starred), pdb files, dvb_<cmd>_<ts>/ outputs, _dvb_failed/ for failures
 docker-compose.yml              # postgres:16-alpine, service `db`
-vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, skip `.*`/`_*`)
+vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, strip orphan parents, skip `.*`/`_*`)
 ```

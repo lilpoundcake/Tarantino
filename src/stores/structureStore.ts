@@ -7,6 +7,9 @@ export interface ChainInfo {
   residues: Array<{
     seqId: number
     compId: string
+    /** False if the residue exists in the PDB SEQRES block but is absent
+     *  from the ATOM records (disordered loop, missing terminus, etc.). */
+    present?: boolean
   }>
 }
 
