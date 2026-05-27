@@ -43,10 +43,15 @@ a dockable multi-panel workspace:
   hydrophobic, metal coordination, disulfide, covalent
 - **DVBFixer**: form-driven UI for the DVBFixer CLI (split / renumber / model /
   prepare / minimize / protonate / glycam), outputs registered as child entries
-- **Mutations**: PostgreSQL-backed editable DataGrid (chain / mutation_name /
-  mutations) for antibody mutation sets
+- **Mutations**: PostgreSQL-backed editable DataGrid (igg_subclass / chain /
+  mutation_name / mutations) with multi-select IgG-subclass tagging and
+  HC/LC chain dropdown; auto-mirrored to a git-tracked `mutations.json`
+  backup at repo root
 - **Library**: hierarchical tree of pre-loaded structures with starring
-- **Info**: editable metadata and stats
+- **Info**: stats summary at the top, single-field metadata (Name + Notes),
+  and an **Equivalent chains** section that auto-groups multimeric copies
+  via sequence identity (with optional manual override persisted in
+  `index.json`)
 
 Selecting / hovering residues in 3D highlights them in Sequence and Alignment
 (bidirectional sync). The Alignment panel routes selection per-side to whichever
@@ -248,12 +253,77 @@ and `cursor: not-allowed`; mouse handlers are nulled out so they can't be select
 or hovered. Tooltip reads `"<RES> <seqId> (<class>) — declared in SEQRES, missing
 from structure"`.
 
+### Info Panel + Equivalent Chains (`src/components/StructureInfo.tsx`, `src/lib/chain-grouping.ts`)
+
+`StructureInfo.tsx` layout (top → bottom):
+
+1. **Summary** — 4 stat cards (Chains / Residues / Atoms / Elements).
+   The Chains and Residues counts are computed against
+   `filterSequenceableChains(chains)` so glycan / water / ion-only chains
+   don't inflate the numbers.
+2. **File** — file path in a monospace `Paper` with
+   `wordBreak: 'break-all'` so long DVBFixer output paths
+   (`dvb_<cmd>_<ts>/<input>_<cmd>.pdb`) wrap instead of overflowing.
+3. **Metadata** — single `Name` TextField. (Organism / Method /
+   Resolution are still in `StructureMeta` + `index.json` for backwards
+   compat, but the inputs are hidden.)
+4. **Notes** — multi-line `description` TextField.
+5. **Equivalent chains** — see below.
+
+**Equivalent chains section** (`EquivalentChainsSection` inside
+`StructureInfo.tsx`, helper in `src/lib/chain-grouping.ts`):
+
+- **Auto-detect.** `computeEquivalentChains(chains, threshold=0.95)`
+  builds a sequence per chain via `chainToSequence` (from
+  `src/lib/alignment.ts`), runs `alignSequences` pairwise + computes
+  `trimmedIdentity` (also from `lib/alignment.ts`). Pairs with
+  trimmed-identity ≥ threshold are merged via union-find (single-linkage
+  clustering). Result is sorted: multi-member groups first by smallest
+  chain id, singletons last.
+- **Trimmed identity.** `trimmedIdentity(result)` walks the alignment,
+  finds the first and last columns where **neither** sequence is a gap,
+  counts `annotation === '|'` matches in that window. Internal gaps stay
+  in the window and count as mismatches. This handles the FcRn case
+  where chains H and I are the same protein but I has a truncated
+  N-terminus — without trimming, the global identity would be much
+  lower than 95% and the pair would never group.
+- **Chain filter.** `filterSequenceableChains` is the same pipeline used
+  by `SequenceViewer`, `ChainSelector`, and `AlignmentPanel`: strip
+  water/ion residues, drop chains with ≤ 1 residue left, drop chains
+  whose every residue maps to `'X'` (glycans). Re-used here so the
+  groups match the chain set the user sees elsewhere.
+- **Display mode.** Multi-member groups render as Paper rows with one
+  filled Chip per chain id + a subtle `97.0 % over 218 aa` annotation.
+  Singletons collapse into one de-emphasised `Unique: B, F, K` row.
+  Footer toolbar: `[Edit groups]` + (when override exists) a `manual`
+  Chip + `[Reset]` button.
+- **Edit mode.** One TextField per group (comma-separated chain ids) +
+  `[+ Add group]`. `[Save]` runs `validateGrouping(parsed, availableIds)`
+  which canonicalises (sort + dedupe), reports `duplicates` (chain id in
+  multiple groups → error) and `unknown` (chain id not present → error).
+  Chains left out become implicit singletons. `[Cancel]` discards local
+  edits.
+- **Persistence.** `StructureMeta.equivalentChains?: string[][]` is part
+  of the existing META_FIELDS debounced-PUT pipeline. `undefined` means
+  "auto-detect, don't persist"; an array (incl. `[]`) is a manual
+  override. The PUT body sends `null` when the field is undefined; the
+  backend honors `null` as "delete this key from `index.json`" so the
+  Reset button actually removes the persisted override rather than
+  leaving an empty array.
+- **Load path.** `StructureLibrary.loadStructureRaw` reads
+  `entry.equivalentChains` into `setMeta(...)` so manual overrides
+  survive structure switches and page reloads.
+
 ### Alignment Panel (`src/components/AlignmentPanel.tsx`, `src/lib/alignment.ts`)
 
 `alignment.ts` is pure-TS Needleman-Wunsch with BLOSUM62 (alphabet
 `ARNDCQEGHILKMFPSTWYVBZX*`, affine gap penalty open -11, extend -1). Returns
 aligned strings + `|` / `:` / `.` / ` ` annotation + identity / similarity /
-score / length.
+score / length. Also exports `chainToSequence(residues)` (1-letter
+sequence from a residue list — used by `AlignmentPanel` and
+`chain-grouping`) and `trimmedIdentity(result)` (identity computed after
+trimming leading / trailing gap columns — used by `chain-grouping` and
+elsewhere when truncated termini shouldn't penalise the score).
 
 `AlignmentPanel.tsx`: two chain pickers (A / B) grouped by source ('A' =
 primary viewer chains, 'B' = secondary viewer chains); each source's chains
@@ -310,10 +380,11 @@ active structure. Failures leave the viewer untouched.
   `mutations` table; auto-creates the table on first connection. Returns 503
   if `DATABASE_URL` is unset.
 - `POST /api/library/star { file }` — toggles `starred` flag in `index.json` (one starred per family).
-- `PUT /api/library/meta { file, name?, organism?, method?, resolution?, description? }` — persists
+- `PUT /api/library/meta { file, name?, organism?, method?, resolution?, description?, equivalentChains? }` — persists
   per-entry metadata edits into `index.json`. Promotes auto-detected files to manual entries on
-  demand. Only patches the named fields — other entry fields (`id`, `parent`, `starred`, etc.) are
-  preserved.
+  demand. Only patches the whitelisted fields — other entry fields (`id`, `parent`, `starred`, etc.) are
+  preserved. **`null` is treated as "delete this key"** so the Info panel's `Reset` button can
+  remove a manual `equivalentChains` override and fall back to auto-detection.
 - `GET /api/status` — `{ dvbfixer, databaseConfigured, databaseConnected }`.
 
 **Spec format** (`server/dvbfixer-spec.ts`):
@@ -324,16 +395,52 @@ active structure. Failures leave the viewer untouched.
 
 ### Mutations Panel + PostgreSQL
 
-`MutationsPanel.tsx` — `@mui/x-data-grid` with columns
-`id` / `chain` / `mutation_name` / `mutations` (the last is a comma-separated
-list of point mutations, e.g. `'M252Y,S254T,T256E'`). Inline cell editing via
-`processRowUpdate` → `PUT /api/mutations/:id`. If the API returns 503 the
-panel renders a config hint pointing at `DATABASE_URL`.
+`MutationsPanel.tsx` — `@mui/x-data-grid` with columns:
+- `id` (number)
+- `igg_subclass` — **multi-select** with checkbox dropdown (options
+  `IgG1`/`IgG2`/`IgG3`/`IgG4`). Stored as a comma-joined string in the
+  single TEXT column (e.g. `"IgG1,IgG4"`). Display renders each pick as a
+  small Chip via a custom `renderCell`. Edit uses a custom
+  `renderEditCell` (`SubclassEditCell`) with a `<Select multiple>` +
+  Checkboxes. The dropdown uses **`defaultOpen`** (NOT controlled
+  `open={true}` — that races with Popover anchor-rect read on mount and
+  crashes the cell as "Error rendering component"). On close,
+  `apiRef.current.stopCellEditMode({ id, field })` is wrapped in
+  `setTimeout(..., 0)` so MUI's popover close transition finishes before
+  DataGrid unmounts the edit cell.
+- `chain` — `singleSelect` with options `['', 'HC', 'LC']` for heavy /
+  light chain. Legacy free-form values render as-is but new edits pick
+  from the dropdown.
+- `mutation_name` — free-form text
+- `mutations` — comma-separated list of point mutations, e.g.
+  `'M252Y,S254T,T256E'`
+
+Inline cell editing via `processRowUpdate` → `PUT /api/mutations/:id`. If
+the API returns 503 the panel renders a config hint pointing at
+`DATABASE_URL`. Rows are zebra-striped via `getRowClassName` +
+`rgba(74,118,196,0.04)` for odd rows so values stay easy to track across
+wide rows; hover bumps to `0.10` alpha.
 
 Backend uses a lazy `pg.Pool` keyed off `DATABASE_URL`. `docker-compose.yml`
 ships `postgres:16-alpine` as service `db` (port 5432, volume
 `tarantino-pg-data`, `pg_isready` healthcheck). `npm run dev` auto-sets
 `DATABASE_URL` to this container.
+
+**`mutations.json` git-tracked backup** — the table is auto-mirrored to
+`mutations.json` at repo root so the team's mutation library is checked
+into git:
+- After every successful POST / PUT / DELETE on `/api/mutations`,
+  `dumpMutationsToBackup(pg)` writes the full table (sorted by id) as
+  JSON to `<projectRoot>/mutations.json`.
+- On the first DB connection per process, `seedMutationsFromBackup(pg)`
+  runs immediately after `CREATE TABLE IF NOT EXISTS`. If the table is
+  empty and `mutations.json` exists, every row is inserted **preserving
+  its `id`**, and `mutations_id_seq` is bumped past the max id so
+  future auto-ids don't collide. Subsequent runs find the table
+  non-empty and skip.
+- Schema migration for older deployments: `ALTER TABLE mutations ADD
+  COLUMN IF NOT EXISTS igg_subclass TEXT NOT NULL DEFAULT ''` runs
+  alongside the `CREATE TABLE IF NOT EXISTS` on every boot.
 
 `scripts/set-modeller-key.sh` finds `<env>/lib/modeller-*/modlib/modeller/config.py`
 inside the active conda/micromamba env (or the prefix passed as `$1`) and writes
@@ -372,12 +479,12 @@ src/
     MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes)
     SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init
     StructureLibrary.tsx        # Tree of structures, starring, A/B slot toggle, hint chip (gated on depth+!starred only)
-    StructureInfo.tsx           # Editable metadata + stats
+    StructureInfo.tsx           # Stats summary at top, single-field metadata + Notes, EquivalentChainsSection (auto-detect via NW + trimmed identity, manual override persisted in index.json)
     ElementsTable.tsx           # Tree, visibility toggles, row-click camera focus (sync-suppressed), "Show Interface"
     InteractionsPanel.tsx       # Computed contacts, focused-chain banner
     AlignmentPanel.tsx          # Pairwise NW alignment, per-source plugin routing
     DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
-    MutationsPanel.tsx          # DataGrid backed by /api/mutations
+    MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, zebra rows
     FileLoader.tsx              # Upload button (honors loadTargetSlot)
     ChainSelector.tsx           # Chain dropdown (same filter+sort as SequenceViewer)
 
@@ -387,12 +494,13 @@ src/
     useCameraSync.ts            # Bidirectional camera mirror via canvas3d.didDraw
 
   stores/
-    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains, elements, meta, focusedChainId+Category, cameraSyncEnabled, clearAllSignal
+    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains, elements, meta (incl. optional equivalentChains override), focusedChainId+Category, cameraSyncEnabled, clearAllSignal
     selectionStore.ts           # selected/hovered residues, _lock mechanism
 
   lib/
     molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (with SEQRES merge + present flag)
-    alignment.ts                # Needleman-Wunsch + BLOSUM62 (pure TS)
+    alignment.ts                # Needleman-Wunsch + BLOSUM62 + chainToSequence + trimmedIdentity (terminal-gap-aware)
+    chain-grouping.ts           # computeEquivalentChains (pairwise NW + union-find), validateGrouping, filterSequenceableChains
     residue-codes.ts            # 3-to-1 letter code (incl. non-canonical)
     residue-color-theme.ts      # Mol* ColorTheme: carbons by residue class, others CPK
 
@@ -405,7 +513,8 @@ scripts/
   fix-native-deps.mjs           # postinstall
   set-modeller-key.sh           # Writes Modeller license into config.py
 
-structures/                     # Manifest (index.json with parent/starred), pdb files, dvb_<cmd>_<ts>/ outputs, _dvb_failed/ for failures
+structures/                     # Manifest (index.json with parent/starred/equivalentChains), pdb files, dvb_<cmd>_<ts>/ outputs, _dvb_failed/ for failures
+mutations.json                  # Git-tracked backup of the postgres `mutations` table. Auto-written after every CRUD, auto-seeded on empty table.
 docker-compose.yml              # postgres:16-alpine, service `db`
 vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, strip orphan parents, skip `.*`/`_*`)
 ```

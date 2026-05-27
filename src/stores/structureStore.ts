@@ -29,6 +29,11 @@ export interface StructureMeta {
   method: string
   resolution: string
   description: string
+  /** Manual override of the equivalent-chain grouping shown in the Info
+   *  panel. Each inner array is one group of chain ids. `undefined` →
+   *  auto-detect via sequence identity (no persisted override). An empty
+   *  outer array is a valid override meaning "force no grouping". */
+  equivalentChains?: string[][]
 }
 
 export type ViewerSlot = 'primary' | 'secondary'

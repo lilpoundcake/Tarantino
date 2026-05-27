@@ -27,6 +27,77 @@ type PgClient = {
 }
 let pgPool: PgClient | null = null
 
+// Project-root path used to locate the git-tracked mutations backup
+// (`mutations.json`). Set once by the Vite plugin's `configureServer`
+// hook; falls back to `process.cwd()` if a request races startup.
+let projectRoot: string | null = null
+
+function mutationsBackupPath(): string {
+  return path.join(projectRoot ?? process.cwd(), 'mutations.json')
+}
+
+/**
+ * Snapshot the full mutations table to `mutations.json` at repo root.
+ * Called after every successful CRUD write so the git-tracked backup
+ * stays in sync with the live DB. Failures are warned but not fatal —
+ * a dump miss is better than crashing the API.
+ */
+async function dumpMutationsToBackup(pg: PgClient) {
+  try {
+    const { rows } = await pg.query(
+      'SELECT id, chain, mutation_name, mutations, igg_subclass FROM mutations ORDER BY id ASC'
+    )
+    fs.writeFileSync(mutationsBackupPath(), JSON.stringify(rows, null, 2) + '\n')
+  } catch (err) {
+    console.warn('[api] failed to dump mutations backup:', err)
+  }
+}
+
+/**
+ * If the mutations table is empty and a backup file exists at repo root,
+ * seed the table from it. Runs once on first connection — subsequent
+ * runs find the table non-empty and skip. This means a fresh clone with
+ * the committed `mutations.json` gets the team's mutation library
+ * automatically.
+ */
+async function seedMutationsFromBackup(pg: PgClient) {
+  const filePath = mutationsBackupPath()
+  if (!fs.existsSync(filePath)) return
+  try {
+    const { rows: countRows } = await pg.query('SELECT COUNT(*)::int AS n FROM mutations')
+    if ((countRows[0]?.n ?? 0) > 0) return
+    const raw = fs.readFileSync(filePath, 'utf-8').trim()
+    if (!raw) return
+    const data = JSON.parse(raw) as Array<{
+      id?: number
+      chain?: string
+      mutation_name?: string
+      mutations?: string
+      igg_subclass?: string
+    }>
+    if (!Array.isArray(data) || data.length === 0) return
+    for (const row of data) {
+      if (row.id !== undefined) {
+        await pg.query(
+          'INSERT INTO mutations (id, chain, mutation_name, mutations, igg_subclass) VALUES ($1, $2, $3, $4, $5)',
+          [row.id, row.chain ?? '', row.mutation_name ?? '', row.mutations ?? '', row.igg_subclass ?? '']
+        )
+      } else {
+        await pg.query(
+          'INSERT INTO mutations (chain, mutation_name, mutations, igg_subclass) VALUES ($1, $2, $3, $4)',
+          [row.chain ?? '', row.mutation_name ?? '', row.mutations ?? '', row.igg_subclass ?? '']
+        )
+      }
+    }
+    // Bump the auto-id sequence above any explicitly-inserted ids so new
+    // rows don't collide.
+    await pg.query("SELECT setval('mutations_id_seq', COALESCE((SELECT MAX(id) FROM mutations), 1))")
+    console.log(`[api] seeded ${data.length} mutations from mutations.json`)
+  } catch (err) {
+    console.warn('[api] failed to seed mutations from backup:', err)
+  }
+}
+
 async function getPg(): Promise<PgClient | null> {
   if (pgPool) return pgPool
   const url = process.env.DATABASE_URL
@@ -35,17 +106,25 @@ async function getPg(): Promise<PgClient | null> {
     const pg = await import('pg')
     const { Pool } = pg.default ?? pg
     const pool = new Pool({ connectionString: url })
-    // Auto-create schema
+    // Auto-create schema. `igg_subclass` is the per-row antibody
+    // subclass tag (e.g. IgG1 / IgG2 / IgG4) — empty string by default.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS mutations (
         id SERIAL PRIMARY KEY,
         chain TEXT NOT NULL,
         mutation_name TEXT NOT NULL,
         mutations TEXT NOT NULL,
+        igg_subclass TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `)
+    // Migrate older deployments whose table predates igg_subclass.
+    await pool.query(
+      `ALTER TABLE mutations ADD COLUMN IF NOT EXISTS igg_subclass TEXT NOT NULL DEFAULT ''`
+    )
     pgPool = pool as unknown as PgClient
+    // Seed from the git-tracked backup file if the table is empty.
+    await seedMutationsFromBackup(pgPool)
     return pgPool
   } catch (err) {
     console.error('[api] postgres init failed:', err)
@@ -132,6 +211,10 @@ export function apiPlugin(): Plugin {
     name: 'tarantino-api',
     configureServer(server: ViteDevServer) {
       const structuresDir = path.resolve(server.config.root, 'structures')
+      // Remember the repo root so the mutations backup writer / seeder
+      // can find `mutations.json` regardless of which working directory
+      // the dev server was launched from.
+      projectRoot = server.config.root
 
       // ── DVBFixer runner ────────────────────────────────────────────────
       server.middlewares.use('/api/dvbfixer', async (req, res, next) => {
@@ -248,32 +331,37 @@ export function apiPlugin(): Plugin {
           const id = idMatch ? parseInt(idMatch[1], 10) : null
 
           if (req.method === 'GET' && !id) {
-            const { rows } = await pg.query('SELECT id, chain, mutation_name, mutations FROM mutations ORDER BY id ASC')
+            const { rows } = await pg.query(
+              'SELECT id, chain, mutation_name, mutations, igg_subclass FROM mutations ORDER BY id ASC'
+            )
             return sendJson(res, 200, rows)
           }
 
           if (req.method === 'POST' && !id) {
             const body = JSON.parse(await readBody(req) || '{}')
-            const { chain = '', mutation_name = '', mutations = '' } = body
+            const { chain = '', mutation_name = '', mutations = '', igg_subclass = '' } = body
             const { rows } = await pg.query(
-              'INSERT INTO mutations (chain, mutation_name, mutations) VALUES ($1, $2, $3) RETURNING id, chain, mutation_name, mutations',
-              [chain, mutation_name, mutations]
+              'INSERT INTO mutations (chain, mutation_name, mutations, igg_subclass) VALUES ($1, $2, $3, $4) RETURNING id, chain, mutation_name, mutations, igg_subclass',
+              [chain, mutation_name, mutations, igg_subclass]
             )
+            await dumpMutationsToBackup(pg)
             return sendJson(res, 201, rows[0])
           }
 
           if (req.method === 'PUT' && id) {
             const body = JSON.parse(await readBody(req) || '{}')
-            const { chain, mutation_name, mutations } = body
+            const { chain, mutation_name, mutations, igg_subclass } = body
             const { rows } = await pg.query(
-              'UPDATE mutations SET chain = COALESCE($2, chain), mutation_name = COALESCE($3, mutation_name), mutations = COALESCE($4, mutations) WHERE id = $1 RETURNING id, chain, mutation_name, mutations',
-              [id, chain, mutation_name, mutations]
+              'UPDATE mutations SET chain = COALESCE($2, chain), mutation_name = COALESCE($3, mutation_name), mutations = COALESCE($4, mutations), igg_subclass = COALESCE($5, igg_subclass) WHERE id = $1 RETURNING id, chain, mutation_name, mutations, igg_subclass',
+              [id, chain, mutation_name, mutations, igg_subclass]
             )
+            await dumpMutationsToBackup(pg)
             return sendJson(res, 200, rows[0])
           }
 
           if (req.method === 'DELETE' && id) {
             await pg.query('DELETE FROM mutations WHERE id = $1', [id])
+            await dumpMutationsToBackup(pg)
             return sendJson(res, 204, {})
           }
 
@@ -326,8 +414,13 @@ export function apiPlugin(): Plugin {
           const entry = entries[idx]
           // Only patch known meta fields. (Don't blindly merge — we don't want
           // the client to overwrite `id`/`file`/`parent`/`starred` etc.)
-          for (const key of ['name', 'organism', 'method', 'resolution', 'description'] as const) {
-            if (key in body) entry[key] = body[key]
+          // A `null` value is treated as "delete this key" so the client can
+          // remove a manual equivalent-chains override and fall back to
+          // auto-detection without leaving an empty array in index.json.
+          for (const key of ['name', 'organism', 'method', 'resolution', 'description', 'equivalentChains'] as const) {
+            if (!(key in body)) continue
+            if (body[key] === null) delete entry[key]
+            else entry[key] = body[key]
           }
 
           fs.writeFileSync(indexPath, JSON.stringify(entries, null, 2))

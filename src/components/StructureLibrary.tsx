@@ -170,6 +170,9 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
           method: (entry as any).method ?? '',
           resolution: (entry as any).resolution ?? '',
           description: entry.description ?? '',
+          // Restore manual equivalent-chain grouping if the entry has one
+          // persisted. Undefined → Info panel falls back to auto-detection.
+          equivalentChains: (entry as any).equivalentChains,
         })
       }
     } catch (err: any) {

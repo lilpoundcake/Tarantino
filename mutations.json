@@ -1,0 +1,51 @@
+[
+  {
+    "id": 1,
+    "chain": "HC",
+    "mutation_name": "YTE",
+    "mutations": "M252Y,S254T,T256E",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 2,
+    "chain": "HC",
+    "mutation_name": "delGK",
+    "mutations": "G446del,K447del",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 3,
+    "chain": "HC",
+    "mutation_name": "G236A",
+    "mutations": "G236A",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 4,
+    "chain": "HC",
+    "mutation_name": "LALA",
+    "mutations": "L234A,L235A",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 5,
+    "chain": "HC",
+    "mutation_name": "K322A",
+    "mutations": "K322A",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 6,
+    "chain": "HC",
+    "mutation_name": "N297A",
+    "mutations": "N297A",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 7,
+    "chain": "HC",
+    "mutation_name": "LALAPG",
+    "mutations": "L234A,L235A,P329G",
+    "igg_subclass": "IgG1"
+  }
+]

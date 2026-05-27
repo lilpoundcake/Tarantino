@@ -12,7 +12,7 @@ import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
 import ClearIcon from '@mui/icons-material/Clear'
 import { useStructureStore } from '../stores/structureStore'
 import { threeToOne } from '../lib/residue-codes'
-import { alignSequences } from '../lib/alignment'
+import { alignSequences, chainToSequence } from '../lib/alignment'
 import {
   selectResiduesInViewer,
   clearSelection,
@@ -42,10 +42,6 @@ interface ChainOption {
   /** Polymer-only residues */
   residues: Array<{ seqId: number; compId: string }>
   aaCount: number
-}
-
-function chainToSequence(residues: Array<{ seqId: number; compId: string }>): string {
-  return residues.map(r => threeToOne(r.compId)).join('')
 }
 
 /**

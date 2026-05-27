@@ -1,6 +1,8 @@
 // Needleman-Wunsch global pairwise alignment with BLOSUM62 substitution matrix.
 // Pure TypeScript, no external deps.
 
+import { threeToOne } from './residue-codes'
+
 const ALPHABET = 'ARNDCQEGHILKMFPSTWYVBZX*'
 // BLOSUM62 substitution matrix (rows/columns indexed by ALPHABET)
 const BLOSUM62 = [
@@ -177,4 +179,42 @@ export function alignSequences(
     identity, similarity,
     length: alignedA.length,
   }
+}
+
+export interface TrimmedIdentity {
+  /** Identities ('|' in annotation) inside the trimmed range. */
+  matches: number
+  /** Columns in the trimmed range (includes internal gaps as mismatches). */
+  length: number
+  /** matches / length, 0 when length === 0. */
+  identity: number
+}
+
+/**
+ * Identity score after trimming leading/trailing columns where either side
+ * is a gap. Used for "are these the same protein?" decisions in the presence
+ * of differential truncation (e.g. a chain copy with a disordered N-terminus
+ * shouldn't be penalised for the missing residues). Internal gaps stay
+ * inside the trimmed range and count as mismatches.
+ */
+export function trimmedIdentity(result: AlignmentResult): TrimmedIdentity {
+  const { alignedA, alignedB, annotation } = result
+  const L = alignedA.length
+  let start = 0
+  while (start < L && (alignedA[start] === '-' || alignedB[start] === '-')) start++
+  let end = L - 1
+  while (end >= start && (alignedA[end] === '-' || alignedB[end] === '-')) end--
+  if (end < start) return { matches: 0, length: 0, identity: 0 }
+  let matches = 0
+  for (let i = start; i <= end; i++) if (annotation[i] === '|') matches++
+  const length = end - start + 1
+  return { matches, length, identity: length === 0 ? 0 : matches / length }
+}
+
+/**
+ * Map a residue list (each item has `compId`) to a 1-letter sequence via the
+ * `threeToOne` table. Unknown / non-standard residues map to 'X'.
+ */
+export function chainToSequence(residues: Array<{ compId: string }>): string {
+  return residues.map(r => threeToOne(r.compId)).join('')
 }

@@ -1,11 +1,38 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import Paper from '@mui/material/Paper'
+import Chip from '@mui/material/Chip'
+import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import AddIcon from '@mui/icons-material/Add'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import { useStructureStore, type StructureMeta } from '../stores/structureStore'
+import { computeEquivalentChains, filterSequenceableChains, validateGrouping } from '../lib/chain-grouping'
 
-const META_FIELDS: Array<keyof StructureMeta> = ['name', 'organism', 'method', 'resolution', 'description']
+const META_FIELDS: Array<keyof StructureMeta> = ['name', 'organism', 'method', 'resolution', 'description', 'equivalentChains']
+
+// Deep-equality check for the equivalentChains field (`string[][]`). Used by
+// the meta-changed detector so a deserialized array doesn't fire spurious
+// saves on every render.
+function chainGroupsEqual(a: string[][] | undefined, b: string[][] | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const ga = a[i], gb = b[i]
+    if (ga.length !== gb.length) return false
+    for (let j = 0; j < ga.length; j++) if (ga[j] !== gb[j]) return false
+  }
+  return true
+}
+
+function metaFieldChanged(key: keyof StructureMeta, a: StructureMeta, b: StructureMeta): boolean {
+  if (key === 'equivalentChains') return !chainGroupsEqual(a.equivalentChains, b.equivalentChains)
+  return a[key] !== b[key]
+}
 
 export function StructureInfo() {
   const meta = useStructureStore((s) => s.meta)
@@ -35,8 +62,9 @@ export function StructureInfo() {
     if (!fileName) return
     if (lastSavedFileRef.current !== fileName) return // file just switched
     if (!initialMetaRef.current) return
-    // Compare against the initial snapshot
-    const changed = META_FIELDS.some(k => meta[k] !== initialMetaRef.current![k])
+    // Compare against the initial snapshot. equivalentChains needs deep
+    // compare, the others are strings.
+    const changed = META_FIELDS.some(k => metaFieldChanged(k, meta, initialMetaRef.current!))
     if (!changed) return
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
@@ -51,6 +79,10 @@ export function StructureInfo() {
             method: meta.method,
             resolution: meta.resolution,
             description: meta.description,
+            // `null` tells the backend to DELETE the key (fall back to
+            // auto-detection); an array (even empty) is treated as an
+            // explicit override and persisted as-is.
+            equivalentChains: meta.equivalentChains === undefined ? null : meta.equivalentChains,
           }),
         })
         initialMetaRef.current = { ...meta }
@@ -72,15 +104,38 @@ export function StructureInfo() {
     )
   }
 
-  const totalResidues = chains.reduce((s, c) => s + c.residues.length, 0)
+  // Summary counts: only count "real" polypeptide/nucleotide chains
+  // (drop water/ion-only chains, all-X glycans, etc.) — same filter used
+  // by the Sequence and Equivalent-chains sections so the numbers agree.
+  const proteinChains = filterSequenceableChains(chains)
+  const totalResidues = proteinChains.reduce((s, c) => s + c.residues.length, 0)
   const totalAtoms = elements.reduce((s, e) => s + e.atomCount, 0)
 
   return (
     <Box sx={{ height: '100%', overflow: 'auto', p: 1.5 }}>
       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
+        Summary
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mt: 0.5, mb: 2 }}>
+        <StatCard label="Chains" value={proteinChains.length} />
+        <StatCard label="Residues" value={totalResidues} />
+        <StatCard label="Atoms" value={totalAtoms} />
+        <StatCard label="Elements" value={elements.length} />
+      </Box>
+
+      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
         File
       </Typography>
-      <Paper variant="outlined" sx={{ px: 1.5, py: 1, mt: 0.5, mb: 2, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          px: 1.5, py: 1, mt: 0.5, mb: 2,
+          fontFamily: 'monospace', fontSize: '0.75rem',
+          // Allow long paths (e.g. dvb_<cmd>_<ts>/<input>_<cmd>.pdb) to wrap
+          // instead of overflowing horizontally.
+          wordBreak: 'break-all', whiteSpace: 'normal',
+        }}
+      >
         {fileName}
       </Paper>
 
@@ -89,9 +144,6 @@ export function StructureInfo() {
       </Typography>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 0.5, mb: 2 }}>
         <TextField label="Name" value={meta.name} onChange={(e) => setMeta({ name: e.target.value })} fullWidth />
-        <TextField label="Organism" value={meta.organism} onChange={(e) => setMeta({ organism: e.target.value })} fullWidth />
-        <TextField label="Method" value={meta.method} onChange={(e) => setMeta({ method: e.target.value })} fullWidth />
-        <TextField label="Resolution" value={meta.resolution} onChange={(e) => setMeta({ resolution: e.target.value })} placeholder="e.g. 2.0 A" fullWidth />
       </Box>
 
       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -107,15 +159,7 @@ export function StructureInfo() {
         sx={{ mt: 0.5, mb: 2 }}
       />
 
-      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
-        Summary
-      </Typography>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mt: 0.5 }}>
-        <StatCard label="Chains" value={chains.length} />
-        <StatCard label="Residues" value={totalResidues} />
-        <StatCard label="Atoms" value={totalAtoms} />
-        <StatCard label="Elements" value={elements.length} />
-      </Box>
+      <EquivalentChainsSection />
     </Box>
   )
 }
@@ -128,5 +172,216 @@ function StatCard({ label, value }: { label: string; value: number }) {
       </Typography>
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>{label}</Typography>
     </Paper>
+  )
+}
+
+/**
+ * Display + edit the equivalent-chain groups for the loaded structure.
+ * Auto-detected via pairwise sequence identity (≥ 95 % after trimming
+ * terminal gaps) by default; user can override and the override is
+ * persisted in `index.json` via the same debounced-PUT pipeline as the
+ * rest of the meta fields.
+ */
+function EquivalentChainsSection() {
+  const chains = useStructureStore((s) => s.chains)
+  const override = useStructureStore((s) => s.meta.equivalentChains)
+  const setMeta = useStructureStore((s) => s.setMeta)
+
+  // Polypeptide / nucleotide chain ids available for grouping (matches the
+  // filter used everywhere else — no glycans, no ion-only chains).
+  const availableIds = useMemo(
+    () => filterSequenceableChains(chains).map(c => c.id),
+    [chains]
+  )
+
+  // Auto-computed groups. Cheap for typical N ≤ 20; useMemo keeps it
+  // stable across unrelated re-renders.
+  const autoGroups = useMemo(() => computeEquivalentChains(chains), [chains])
+
+  // What we display: the override if set, otherwise the auto groups.
+  // Both produce the same `ChainGroup`-ish shape; for an override we
+  // recompute the identity from auto-groups when possible (for display only).
+  const displayGroups = useMemo(() => {
+    if (!override) return autoGroups
+    // Map auto-group identities by sorted-id key so we can decorate the
+    // user's groups with the identity number where it makes sense.
+    const autoByKey = new Map(
+      autoGroups.map(g => [g.chainIds.slice().sort().join(','), g])
+    )
+    return override.map(ids => {
+      const sorted = ids.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+      const match = autoByKey.get(sorted.join(','))
+      return {
+        chainIds: sorted,
+        identity: match?.identity ?? null,
+        alignmentLength: match?.alignmentLength ?? null,
+      }
+    })
+  }, [override, autoGroups])
+
+  const [editing, setEditing] = useState(false)
+  const [drafts, setDrafts] = useState<string[]>([])
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  const startEditing = () => {
+    const sourceGroups: string[][] = override
+      ? override
+      : autoGroups.filter(g => g.chainIds.length > 1).map(g => g.chainIds)
+    setDrafts(sourceGroups.map(g => g.join(', ')))
+    setErrorMsg(null)
+    setEditing(true)
+  }
+
+  const cancelEditing = () => {
+    setDrafts([])
+    setErrorMsg(null)
+    setEditing(false)
+  }
+
+  const saveDrafts = () => {
+    const parsed: string[][] = drafts
+      .map(line => line.split(',').map(t => t.trim()).filter(Boolean))
+      .filter(g => g.length > 0)
+    const result = validateGrouping(parsed, availableIds)
+    if (result.unknown.length > 0) {
+      setErrorMsg(`Unknown chain id${result.unknown.length > 1 ? 's' : ''}: ${result.unknown.join(', ')}`)
+      return
+    }
+    if (result.duplicates.length > 0) {
+      setErrorMsg(`Chain${result.duplicates.length > 1 ? 's' : ''} listed in more than one group: ${result.duplicates.join(', ')}`)
+      return
+    }
+    setMeta({ equivalentChains: result.canonical })
+    setEditing(false)
+    setErrorMsg(null)
+  }
+
+  const resetToAuto = () => {
+    setMeta({ equivalentChains: undefined })
+    setEditing(false)
+    setErrorMsg(null)
+  }
+
+  if (availableIds.length === 0) return null
+
+  // Singletons (chains not in any multi-member group) — rolled into one
+  // de-emphasised row at the bottom.
+  const placed = new Set(displayGroups.filter(g => g.chainIds.length > 1).flatMap(g => g.chainIds))
+  const singletons = availableIds.filter(id => !placed.has(id))
+  const multiMember = displayGroups.filter(g => g.chainIds.length > 1)
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
+          Equivalent chains
+        </Typography>
+        {override !== undefined && (
+          <Chip label="manual" size="small" color="warning" sx={{ height: 14, fontSize: '0.55rem' }} />
+        )}
+        <Box sx={{ flex: 1 }} />
+        {!editing && (
+          <>
+            <Button size="small" onClick={startEditing} sx={{ fontSize: '0.65rem', minWidth: 0, px: 1 }}>
+              Edit groups
+            </Button>
+            {override !== undefined && (
+              <Tooltip title="Discard manual grouping and use sequence-identity auto-detection">
+                <Button size="small" onClick={resetToAuto} sx={{ fontSize: '0.65rem', minWidth: 0, px: 1 }}>
+                  Reset
+                </Button>
+              </Tooltip>
+            )}
+          </>
+        )}
+        {editing && (
+          <>
+            <Button size="small" onClick={cancelEditing} sx={{ fontSize: '0.65rem', minWidth: 0, px: 1 }}>
+              Cancel
+            </Button>
+            <Button size="small" variant="contained" onClick={saveDrafts} sx={{ fontSize: '0.65rem', minWidth: 0, px: 1 }}>
+              Save
+            </Button>
+          </>
+        )}
+      </Box>
+
+      {!editing && multiMember.length === 0 && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+          No equivalent chains detected — every chain looks unique.
+        </Typography>
+      )}
+
+      {!editing && multiMember.map((g, idx) => (
+        <Paper key={idx} variant="outlined" sx={{ px: 1, py: 0.75, mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+          {g.chainIds.map(id => {
+            const missing = !availableIds.includes(id)
+            return (
+              <Chip
+                key={id}
+                label={missing ? `${id} (missing)` : id}
+                size="small"
+                color={missing ? 'error' : 'primary'}
+                variant={missing ? 'outlined' : 'filled'}
+                sx={{ height: 20, fontWeight: 600 }}
+              />
+            )
+          })}
+          <Box sx={{ flex: 1 }} />
+          {g.identity !== null && g.alignmentLength !== null && (
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>
+              {(g.identity * 100).toFixed(1)} % over {g.alignmentLength} aa
+            </Typography>
+          )}
+        </Paper>
+      ))}
+
+      {!editing && singletons.length > 0 && (
+        <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem' }}>
+            Unique:
+          </Typography>
+          {singletons.map(id => (
+            <Chip key={id} label={id} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+          ))}
+        </Box>
+      )}
+
+      {editing && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>
+            One group per row — comma-separate chain ids. Chains left out become singletons.
+          </Typography>
+          {drafts.map((line, idx) => (
+            <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <TextField
+                size="small"
+                value={line}
+                onChange={(e) => setDrafts(d => d.map((v, i) => i === idx ? e.target.value : v))}
+                placeholder="e.g. H, I"
+                fullWidth
+                sx={{ '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.5 } }}
+              />
+              <IconButton size="small" onClick={() => setDrafts(d => d.filter((_, i) => i !== idx))} sx={{ p: 0.5 }}>
+                <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
+          ))}
+          <Button
+            size="small"
+            startIcon={<AddIcon sx={{ fontSize: 14 }} />}
+            onClick={() => setDrafts(d => [...d, ''])}
+            sx={{ alignSelf: 'flex-start', fontSize: '0.65rem' }}
+          >
+            Add group
+          </Button>
+          {errorMsg && (
+            <Typography variant="caption" sx={{ color: 'error.main', fontSize: '0.65rem' }}>
+              {errorMsg}
+            </Typography>
+          )}
+        </Box>
+      )}
+    </Box>
   )
 }
