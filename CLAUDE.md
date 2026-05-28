@@ -43,6 +43,15 @@ a dockable multi-panel workspace:
   hydrophobic, metal coordination, disulfide, covalent
 - **DVBFixer**: form-driven UI for the DVBFixer CLI (split / renumber / model /
   prepare / minimize / protonate / glycam), outputs registered as child entries
+- **Antibody Engineer**: takes any antibody-containing structure (full / Fab /
+  Fc), classifies its chains (HC / LC κ / LC λ, IgG1–4), maps EU- or
+  Kabat-numbered mutations from the Mutations DB onto every chain in each
+  equivalent-chain group, runs the appropriate multi-step DVBFixer pipeline
+  (`renumber → prepare --mutate → [glycam → minimize --no-solvent →
+  protonate → minimize --no-solvent → glycam --to-charmm]` for glycan
+  inputs, 5-step variant without glycam for non-glycan), and streams live
+  per-step progress to a `LinearProgress`. Dedup: same `(input, mutations,
+  glycan, scheme)` combo skips re-running and loads the cached output.
 - **Mutations**: PostgreSQL-backed editable DataGrid (igg_subclass / chain /
   mutation_name / mutations) with multi-select IgG-subclass tagging and
   HC/LC chain dropdown; auto-mirrored to a git-tracked `mutations.json`
@@ -379,6 +388,10 @@ active structure. Failures leave the viewer untouched.
 - `GET / POST / PUT / DELETE /api/mutations[/:id]` — CRUD for the
   `mutations` table; auto-creates the table on first connection. Returns 503
   if `DATABASE_URL` is unset.
+- `POST /api/antibody-engineer/run` — **SSE** endpoint. Body `{ inputFile,
+  mutationIds: number[], equivalentChainsMap?, hasGlycan: boolean, scheme:
+  'EU'|'Kabat' }`. Streams `data: <JSON>\n\n` events. See the dedicated
+  Antibody Engineer architecture section above.
 - `POST /api/library/star { file }` — toggles `starred` flag in `index.json` (one starred per family).
 - `PUT /api/library/meta { file, name?, organism?, method?, resolution?, description?, equivalentChains? }` — persists
   per-entry metadata edits into `index.json`. Promotes auto-detected files to manual entries on
@@ -446,6 +459,129 @@ into git:
 inside the active conda/micromamba env (or the prefix passed as `$1`) and writes
 `license = r'<key>'` (reads from `KEY=`).
 
+### Antibody Engineer (`src/components/AntibodyEngineerPanel.tsx`, `src/lib/antibody-numbering.ts`, `src/lib/antibody-references.ts`, `server/antibody-pipeline.ts`)
+
+End-to-end "select mutations from the DB → produce a mutant structure"
+tool. Spans the frontend (chain detection + validation + SSE consumer)
+and the backend (multi-step DVBFixer orchestrator + dedup cache).
+
+**Reference library** (`src/lib/antibody-references.ts`) — hardcoded
+UniProt constant-region sequences for IgG1/2/3/4 heavy + κ / λ light
+(P01857, P01859, P01860, P01861, P01834, P0CG04). EU domain windows are
+captured per subclass. A `verifyReferences()` self-check runs on module
+load and throws on any landmark mismatch — guarantees a typo in the
+hardcoded sequence is caught at startup. Only IgG1 + κ + λ have full
+landmark assertions; IgG2/3/4 are best-effort (NW alignment still works
+for soft classification) since EU numbering preserves homology across
+subclasses with hinge-length gaps that can't be indexed by simple offset.
+
+**Chain identification** (`src/lib/antibody-numbering.ts`):
+- `identifyAntibodyChain(residues)` runs NW (reusing `alignSequences`)
+  against every reference, picks the winner by `trimmedIdentity ≥ 0.70`
+  and a within-class margin `≥ 0.05`. Returns `{ type: HC|LC, subclass,
+  region, identity, alignmentLength, margin, domainsObserved, warnings }`.
+  Region inference: `domainsObserved` (CH1/hinge/CH2/CH3 from per-window
+  coverage) + leading unmatched chain length (≥ 80 aa → VH) →
+  full / Fab-HC / Fc / VH-only / scFv / VHH / LC / partial.
+- `mapEuToAuthSeqId(residues, eu, classification)` — walks the
+  alignment against the winning reference, returns the chain's
+  `auth_seq_id` for EU position `n` (or null if outside coverage). Used
+  ONLY for frontend pre-flight validation ("does position 322 exist in
+  this Fc-only fragment?"). The actual mutation pipeline relies on
+  `dvbfixer renumber --scheme eu` doing the renumbering on disk.
+- `parseMutation('K322A' | 'G446del')` and `mutateArgFor(chain, parsed)`
+  emit `'H:322:ALA'` / `'H:446:del'` formatted CLI args.
+
+**Pipeline orchestrator** (`server/antibody-pipeline.ts`):
+- `expandMutations(rows, equivChainsMap)` parses each row's
+  comma-separated `mutations` field, fans every token out across all
+  chains in the matching equivalent-chain bucket (`HC: ['H','I']` →
+  emits both `H:322:ALA` and `I:322:ALA`). 1-letter → 3-letter codes via
+  the local `AA1_TO_AA3` map. `del` is forwarded verbatim.
+- `validateNoDuplicateTargets(args)` — server-side defensive check; the
+  frontend already blocks this case.
+- `pipelineSteps(scheme, hasGlycan, mutateArgs)` produces the 7-step
+  glycan pipeline or 5-step no-glycan pipeline. Scheme passed to
+  DVBFixer is **lowercased** (`'eu'` / `'kabat'`) — the CLI's
+  `--scheme` choices are `seqres / kabat / chothia / imgt / martin / eu / aho`.
+- `runEngineerPipeline(p)` is the main loop. Each step gets its own
+  `structures/dvb_<command>_<ts>_s<N>/` directory (the `_s<N>` suffix
+  prevents collisions when the same command appears twice, e.g. two
+  `minimize` steps in the glycan pipeline). Intermediate outputs are
+  registered as plain `index.json` entries with `parent` set to the
+  previous step's output. The FINAL step writes a rich entry with
+  `parent` = original input file (not the previous step), plus
+  `mutationIds: number[]`, `mutationsResolved: string`,
+  `_engineerChecksum: string`, `hasGlycan: boolean`, `scheme: 'EU'|'Kabat'`,
+  `command: 'antibody-engineer'`, and a generated `name` like
+  `"FcRn — YTE + LALA"`.
+- Failure: any non-zero exit code → emit error SSE event, move EVERY
+  created output dir into `structures/_engineer_failed/<subdir>` (scanner
+  ignores underscore-prefixed dirs), close stream without writing an
+  index.json entry.
+- Dedup checksum (`engineerChecksum`): SHA-256 over
+  `JSON.stringify({ inputFile, sortedMutationIds, hasGlycan, scheme })`.
+  `equivalentChainsMap` is intentionally NOT included — fixing the
+  equiv map should re-run, not cache-hit.
+- `findCachedEntry(structuresDir, inputFile, checksum)` scans
+  `index.json` for `parent === inputFile && _engineerChecksum === checksum &&
+  file-on-disk`. Hit → emit `step: 0, status: 'done', name: 'cached'` + a
+  final `status: 'complete'` event and close.
+
+**SSE route** (`POST /api/antibody-engineer/run`, in
+`server/api-plugin.ts`). Body: `{ inputFile, mutationIds, equivalentChainsMap,
+hasGlycan, scheme }`. Headers: `Content-Type: text/event-stream` +
+`Cache-Control: no-cache` + `X-Accel-Buffering: no` (via the exported
+`writeSSEHeaders` helper). Each event is one `data: <JSON>\n\n` chunk
+(via `sseSend`) with a single channel — the client switches on
+`payload.status` (`'running' | 'done' | 'error' | 'complete'`). Aborts
+are observed via `req.on('close')`. The route also queries postgres for
+the requested mutation rows (rejects missing IDs) and runs the dedup
+lookup before dispatching to `runEngineerPipeline`.
+
+**DVBFixer spec** (`server/dvbfixer-spec.ts`): the `renumber` command's
+`--scheme` flag exposes `['', 'seqres', 'kabat', 'chothia', 'imgt',
+'martin', 'eu', 'aho']` — full match against the actual CLI.
+
+**Frontend panel** (`src/components/AntibodyEngineerPanel.tsx`). Three
+`Paper` cards:
+- **Input + detection** — Select for input file (auto-mirrors
+  `useStructureStore.fileName`, identical pattern to DVBFixerPanel).
+  Detection only runs when the picked file equals the primary plugin's
+  current file. Chip row groups detected chains by `type/subclass` (e.g.
+  `[HC IgG1 — H, I]`); a `Glycans present` / `No glycans` chip is
+  derived from `useStructureStore(s => s.elements)` (`entityType ===
+  'branched'` OR any of `NAG/BMA/MAN/FUC/GAL/SIA/GLC/XYL`).
+- **Mutations** — fetches `/api/mutations`, filters rows by detected IgG
+  subclass (empty `igg_subclass` = universal, applies to every
+  structure). Live validation `useMemo` over `(checked, allRows,
+  equivalentChainsMap, detections, chains)` produces error chips per
+  row: `'no-target-chain'` (no detected HC/LC for the row's chain type),
+  `'out-of-range'` (target EU position not in this fragment per
+  `mapEuToAuthSeqId`), `'conflict'` (two checked rows both target the
+  same `(chainId, position)`). Below the list, a row of chips shows
+  `equivalentChainsMap` (e.g. `HC: H, I` / `LC: A, C`) and the
+  `previewMutateArgs` count with a tooltip listing the literal
+  `--mutate H:322:ALA …` args.
+- **Pipeline** — numbering-scheme `ToggleButtonGroup` (EU / Kabat,
+  pinned at the top of the section), glycan-handling `RadioGroup`
+  (auto / force-with / force-without), monospace preview of the step
+  sequence, then the Run button and progress / cached / error states.
+
+**`equivalentChainsMap` resolution** — frontend constructs it by
+bucketing detected chains by classification type (`HC` or `LC`), then
+expands each bucket using the user's `meta.equivalentChains` override
+(from the Info panel). If a manual group contains an already-typed
+chain, every other chain in the group gets promoted to the same type.
+Backend receives the resolved map and trusts it.
+
+**Library integration** — the rich final entry's `parent` set to the
+ORIGINAL input means the Library tree shows `FcRn.pdb → "FcRn — YTE"`
+as a direct child, regardless of how many intermediate steps the
+pipeline ran. Intermediate outputs become children of the previous
+step's output (deep but discoverable). `bumpLibraryVersion()` is called
+on completion to force a re-fetch.
+
 ### Empty 3D Click Behavior
 
 `useMolstarSync.attachEmptyClickCleanup` is a single unified handler attached
@@ -485,6 +621,7 @@ src/
     AlignmentPanel.tsx          # Pairwise NW alignment, per-source plugin routing
     DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
     MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, zebra rows
+    AntibodyEngineerPanel.tsx   # End-to-end mutate-by-DB-row tool: chain detection, validation, SSE-driven progress, auto-load output
     FileLoader.tsx              # Upload button (honors loadTargetSlot)
     ChainSelector.tsx           # Chain dropdown (same filter+sort as SequenceViewer)
 
@@ -501,19 +638,22 @@ src/
     molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (with SEQRES merge + present flag)
     alignment.ts                # Needleman-Wunsch + BLOSUM62 + chainToSequence + trimmedIdentity (terminal-gap-aware)
     chain-grouping.ts           # computeEquivalentChains (pairwise NW + union-find), validateGrouping, filterSequenceableChains
+    antibody-references.ts      # Hardcoded UniProt CH/CL sequences (IgG1-4, κ, λ) + EU domain anchors + landmark self-check
+    antibody-numbering.ts       # identifyAntibodyChain (NW vs refs → HC/LC + subclass + region), mapEuToAuthSeqId, parseMutation, mutateArgFor
     residue-codes.ts            # 3-to-1 letter code (incl. non-canonical)
     residue-color-theme.ts      # Mol* ColorTheme: carbons by residue class, others CPK
 
 server/
-  api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/star, /api/library/meta, /api/status
-  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/glycam
+  api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/star, /api/library/meta, /api/antibody-engineer/run (SSE), /api/status. Exports runDvbfixer + getPg + writeSSEHeaders + sseSend for reuse.
+  antibody-pipeline.ts          # Multi-step DVBFixer orchestrator: expandMutations, validateNoDuplicateTargets, pipelineSteps (glycan-7 vs no-glycan-5), engineerChecksum dedup, runEngineerPipeline (intermediate + final index.json entries, _engineer_failed/ rollback)
+  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/glycam. renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho
 
 scripts/
   dev.mjs                       # Smart launcher: auto docker postgres → vite
   fix-native-deps.mjs           # postinstall
   set-modeller-key.sh           # Writes Modeller license into config.py
 
-structures/                     # Manifest (index.json with parent/starred/equivalentChains), pdb files, dvb_<cmd>_<ts>/ outputs, _dvb_failed/ for failures
+structures/                     # Manifest (index.json with parent/starred/equivalentChains/mutationIds/_engineerChecksum), pdb files, dvb_<cmd>_<ts>/ outputs, _dvb_failed/ for single-command failures, _engineer_failed/ for Antibody Engineer pipeline failures
 mutations.json                  # Git-tracked backup of the postgres `mutations` table. Auto-written after every CRUD, auto-seeded on empty table.
 docker-compose.yml              # postgres:16-alpine, service `db`
 vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, strip orphan parents, skip `.*`/`_*`)

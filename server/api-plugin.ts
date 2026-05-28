@@ -98,7 +98,7 @@ async function seedMutationsFromBackup(pg: PgClient) {
   }
 }
 
-async function getPg(): Promise<PgClient | null> {
+export async function getPg(): Promise<PgClient | null> {
   if (pgPool) return pgPool
   const url = process.env.DATABASE_URL
   if (!url) return null
@@ -130,6 +130,30 @@ async function getPg(): Promise<PgClient | null> {
     console.error('[api] postgres init failed:', err)
     return null
   }
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * SSE helpers (used by /api/antibody-engineer/run and any future
+ * long-running orchestrator that wants real-time progress).
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** Set SSE headers and flush so the browser begins reading. Call once
+ *  before the first sseSend(). */
+export function writeSSEHeaders(res: ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    // Defeat upstream proxy buffering (nginx, etc.) so events arrive promptly.
+    'X-Accel-Buffering': 'no',
+  })
+  // res.flushHeaders exists on Node's ServerResponse — try-cast for compat.
+  if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders()
+}
+
+/** Emit one SSE message. Single-channel: client switches on payload.status. */
+export function sseSend(res: ServerResponse, payload: unknown): void {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`)
 }
 
 /** Read the entire request body as a string. */
@@ -181,8 +205,13 @@ function buildArgs(commandName: string, values: Record<string, any>): string[] {
   return args
 }
 
-/** Spawn dvbfixer and capture stdout + stderr. */
-function runDvbfixer(
+/**
+ * Spawn dvbfixer and capture stdout + stderr.
+ *
+ * Exported so multi-step orchestrators (e.g. `server/antibody-pipeline.ts`)
+ * can chain DVBFixer commands without duplicating the spawn / env-var logic.
+ */
+export function runDvbfixer(
   command: string,
   inputFile: string,
   outputFile: string,
@@ -509,6 +538,103 @@ export function apiPlugin(): Plugin {
           sendJson(res, 200, { ok: true, entries })
         } catch (err: any) {
           sendJson(res, 500, { error: err.message ?? String(err) })
+        }
+      })
+
+      // ── Antibody Engineer pipeline (SSE) ─────────────────────────────
+      // POST /api/antibody-engineer/run streams progress for the
+      // multi-step DVBFixer pipeline that applies one or more selected
+      // Mutations DB rows (with equivalent-chain fan-out) to a structure.
+      server.middlewares.use('/api/antibody-engineer/run', async (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        try {
+          const bodyText = await readBody(req)
+          const body = JSON.parse(bodyText || '{}') as {
+            inputFile?: string
+            mutationIds?: number[]
+            equivalentChainsMap?: Record<string, string[]>
+            hasGlycan?: boolean
+            scheme?: 'EU' | 'Kabat'
+          }
+          if (!body.inputFile) return sendJson(res, 400, { error: 'inputFile required' })
+          if (!Array.isArray(body.mutationIds) || body.mutationIds.length === 0) {
+            return sendJson(res, 400, { error: 'mutationIds required (non-empty array)' })
+          }
+          if (typeof body.hasGlycan !== 'boolean') return sendJson(res, 400, { error: 'hasGlycan required' })
+          if (body.scheme !== 'EU' && body.scheme !== 'Kabat') return sendJson(res, 400, { error: 'scheme must be EU or Kabat' })
+
+          const inputAbs = path.resolve(structuresDir, body.inputFile)
+          if (!inputAbs.startsWith(structuresDir) || !fs.existsSync(inputAbs)) {
+            return sendJson(res, 404, { error: 'inputFile not found under structures/' })
+          }
+
+          // Dynamic imports so SSE-specific deps stay out of cold-path code.
+          const { runEngineerPipeline, engineerChecksum, findCachedEntry } =
+            await import('./antibody-pipeline')
+
+          // Compute checksum + lookup cache. Cache hit = no pipeline run.
+          const checksum = engineerChecksum({
+            inputFile: body.inputFile,
+            mutationIds: body.mutationIds,
+            hasGlycan: body.hasGlycan,
+            scheme: body.scheme,
+          })
+
+          writeSSEHeaders(res)
+          let aborted = false
+          req.on('close', () => { aborted = true })
+
+          const cached = findCachedEntry(structuresDir, body.inputFile, checksum)
+          if (cached) {
+            sseSend(res, { step: 0, total: 0, name: 'cached', status: 'done', outputFile: cached.file })
+            sseSend(res, { step: 0, total: 0, status: 'complete', outputFile: cached.file, entry: cached })
+            res.end()
+            return
+          }
+
+          // Look up the selected mutation rows from postgres. The Mutations
+          // DB is the source of truth for what to mutate; the engineer tool
+          // only references them by id.
+          const pg = await getPg()
+          if (!pg) {
+            sseSend(res, { step: 0, total: 0, name: 'validate', status: 'error', stderr: 'DATABASE_URL not configured — mutations table unavailable.' })
+            res.end()
+            return
+          }
+          const { rows } = await pg.query(
+            'SELECT id, chain, mutation_name, mutations FROM mutations WHERE id = ANY($1::int[]) ORDER BY id ASC',
+            [body.mutationIds]
+          )
+          if (rows.length !== body.mutationIds.length) {
+            const found = new Set(rows.map((r: any) => r.id))
+            const missing = body.mutationIds.filter(id => !found.has(id))
+            sseSend(res, { step: 0, total: 0, name: 'validate', status: 'error', stderr: `Mutation row(s) not found: ${missing.join(', ')}` })
+            res.end()
+            return
+          }
+
+          await runEngineerPipeline({
+            structuresDir,
+            inputFile: body.inputFile,
+            mutationRows: rows as any,
+            mutationIds: body.mutationIds,
+            equivalentChainsMap: body.equivalentChainsMap ?? {},
+            hasGlycan: body.hasGlycan,
+            scheme: body.scheme,
+            checksum,
+            onEvent: (e) => sseSend(res, e),
+            isAborted: () => aborted,
+          })
+
+          res.end()
+        } catch (err: any) {
+          // SSE response may already be writing — try a final error frame.
+          try {
+            sseSend(res, { step: 0, total: 0, name: 'fatal', status: 'error', stderr: err?.message ?? String(err) })
+            res.end()
+          } catch {
+            sendJson(res, 500, { error: err?.message ?? String(err) })
+          }
         }
       })
 

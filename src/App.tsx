@@ -20,6 +20,7 @@ import InfoIcon from '@mui/icons-material/Info'
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
 import BuildIcon from '@mui/icons-material/Build'
 import EditNoteIcon from '@mui/icons-material/EditNote'
+import BiotechIcon from '@mui/icons-material/Biotech'
 import LinkIcon from '@mui/icons-material/Link'
 import LinkOffIcon from '@mui/icons-material/LinkOff'
 import IconButton from '@mui/material/IconButton'
@@ -34,6 +35,7 @@ import { InteractionsPanel } from './components/InteractionsPanel'
 import { AlignmentPanel } from './components/AlignmentPanel'
 import { DVBFixerPanel } from './components/DVBFixerPanel'
 import { MutationsPanel } from './components/MutationsPanel'
+import { AntibodyEngineerPanel } from './components/AntibodyEngineerPanel'
 import { useStructureStore } from './stores/structureStore'
 import { useSelectionStore } from './stores/selectionStore'
 import { useMolstarSync } from './hooks/useMolstarSync'
@@ -48,6 +50,7 @@ const PANEL_TYPES = [
   { component: 'interactions', name: 'Interactions', icon: <HubIcon sx={{ fontSize: 16 }} /> },
   { component: 'alignment', name: 'Alignment', icon: <CompareArrowsIcon sx={{ fontSize: 16 }} /> },
   { component: 'dvbfixer', name: 'DVBFixer', icon: <BuildIcon sx={{ fontSize: 16 }} /> },
+  { component: 'antibody-engineer', name: 'Antibody Engineer', icon: <BiotechIcon sx={{ fontSize: 16 }} /> },
   { component: 'mutations', name: 'Mutations', icon: <EditNoteIcon sx={{ fontSize: 16 }} /> },
   { component: 'library', name: 'Library', icon: <FolderIcon sx={{ fontSize: 16 }} /> },
   { component: 'info', name: 'Info', icon: <InfoIcon sx={{ fontSize: 16 }} /> },
@@ -177,6 +180,7 @@ function App() { // @dsp obj-a1000002
       case 'interactions': return <InteractionsPanel />
       case 'alignment': return <AlignmentPanel />
       case 'dvbfixer': return <DVBFixerPanel />
+      case 'antibody-engineer': return <AntibodyEngineerPanel />
       case 'mutations': return <MutationsPanel />
       default: return null
     }

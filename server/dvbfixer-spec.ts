@@ -64,8 +64,9 @@ export const COMMANDS: CommandDef[] = [
   {
     name: 'renumber',
     label: 'Renumber',
-    description: 'Renumber residues by aligning ATOM records to SEQRES. Removes insertion codes (e.g. Kabat antibody numbering).',
+    description: 'Renumber residues by aligning ATOM records to SEQRES. Removes insertion codes (e.g. Kabat antibody numbering). With --scheme, applies EU or Kabat antibody numbering.',
     flags: [
+      { flag: '--scheme', label: 'Numbering scheme', type: 'select', default: '', options: ['', 'seqres', 'kabat', 'chothia', 'imgt', 'martin', 'eu', 'aho'], help: 'Renumbering scheme. Antibody-specific schemes (kabat, chothia, imgt, martin, eu, aho) renumber antibody constant/variable domains in canonical conventions. Default (empty) → seqres-based plain renumbering.' },
       { flag: '--keep-water', label: 'Keep water', type: 'bool' },
       { flag: '--rename', label: 'Rename non-canonical residues', type: 'bool' },
       { flag: '--verbose', label: 'Verbose output', type: 'bool', default: true },
