@@ -433,7 +433,9 @@ export function apiPlugin(): Plugin {
             entries.push({
               id: file,
               file,
-              name: path.basename(file).replace(/\.(pdb|cif|mmcif)$/i, '').toUpperCase(),
+              // Preserve the filename's actual case — extension-stripped basename.
+              // Previously `.toUpperCase()` here mangled mixed-case names.
+              name: path.basename(file).replace(/\.(pdb|cif|mmcif)$/i, ''),
               organism: '', chains: 0, residues: 0,
               description: '',
             })
@@ -493,7 +495,9 @@ export function apiPlugin(): Plugin {
             entries.push({
               id: file,
               file,
-              name: path.basename(file).replace(/\.(pdb|cif|mmcif)$/i, '').toUpperCase(),
+              // Preserve the filename's actual case — extension-stripped basename.
+              // Previously `.toUpperCase()` here mangled mixed-case names.
+              name: path.basename(file).replace(/\.(pdb|cif|mmcif)$/i, ''),
               organism: '', chains: 0, residues: 0,
               description: '',
             })

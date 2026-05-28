@@ -41,14 +41,17 @@ function scanStructuresDir(structuresDir: string) {
 
   // Drop manual entries whose file is missing from disk (user deleted it).
   // Also strip orphan `parent` references that point to files no longer
-  // present in the (filtered) manual list — these are leftovers from old
-  // star/swap bugs and break the family-tree walk in the library.
-  // Auto-prune the index.json file so stale state doesn't accumulate.
+  // present ON DISK — these are leftovers from old star/swap bugs and
+  // break the family-tree walk in the library. NB: we check against
+  // `onDisk`, NOT against the subset of files that happen to be tracked
+  // manually in index.json — an auto-detected parent (a PDB the user
+  // dropped in without curating index.json) is still a valid parent for
+  // DVBFixer child entries. Auto-prune the index.json file so stale state
+  // doesn't accumulate.
   let aliveManual = manual.filter((e: any) => onDisk.has(e.file))
-  const aliveFiles = new Set(aliveManual.map((e: any) => e.file))
   let mutated = aliveManual.length !== manual.length
   aliveManual = aliveManual.map((e: any) => {
-    if (e.parent && !aliveFiles.has(e.parent)) {
+    if (e.parent && !onDisk.has(e.parent)) {
       mutated = true
       const { parent, ...rest } = e
       void parent
@@ -71,7 +74,9 @@ function scanStructuresDir(structuresDir: string) {
       return {
         id,
         file: f,
-        name: base.toUpperCase(),
+        // Preserve the filename's actual case — use the basename as-is.
+        // Was `base.toUpperCase()` which mangled e.g. mystructure.pdb → MYSTRUCTURE.
+        name: base,
         organism: '',
         chains: 0,
         residues: 0,

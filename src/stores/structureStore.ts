@@ -1,6 +1,19 @@
 import { create } from 'zustand'
 import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context'
 
+/** Persist the auto-orient setting in localStorage so the toggle survives
+ *  page reloads. Default OFF — read returns false unless the user has
+ *  explicitly enabled it. */
+const AUTO_ORIENT_KEY = 'tarantino.autoOrientOnLoad'
+function loadPersistedAutoOrient(): boolean {
+  if (typeof window === 'undefined') return false
+  try { return window.localStorage.getItem(AUTO_ORIENT_KEY) === 'true' } catch { return false }
+}
+function persistAutoOrient(enabled: boolean): void {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(AUTO_ORIENT_KEY, enabled ? 'true' : 'false') } catch {}
+}
+
 export interface ChainInfo {
   id: string
   entityId: string
@@ -63,6 +76,10 @@ interface StructureState {
   focusedCategory: string | null
   /** When true, camera movements in viewer A are mirrored in viewer B and vice versa. */
   cameraSyncEnabled: boolean
+  /** When true, every loaded structure is auto-oriented to its principal axes
+   *  via PluginCommands.Camera.OrientAxes after the default preset is applied.
+   *  Default OFF — many users prefer the structure's authored orientation. */
+  autoOrientOnLoad: boolean
   /** Monotonic counter. Increment to signal "clear all selections everywhere"
    *  (3D viewers + alignment panel etc.). Components watch via useEffect. */
   clearAllSignal: number
@@ -85,6 +102,7 @@ interface StructureState {
   setMeta: (meta: Partial<StructureMeta>) => void
   setFocusedChain: (chainId: string | null, category?: string | null) => void
   setCameraSyncEnabled: (enabled: boolean) => void
+  setAutoOrientOnLoad: (enabled: boolean) => void
   /** Bump clearAllSignal — components subscribed via useEffect will reset their state. */
   fireClearAll: () => void
   /** Bump libraryVersion — StructureLibrary re-fetches index.json. */
@@ -116,6 +134,7 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
   focusedChainId: null,
   focusedCategory: null,
   cameraSyncEnabled: true,
+  autoOrientOnLoad: loadPersistedAutoOrient(),
   clearAllSignal: 0,
   libraryVersion: 0,
 
@@ -141,6 +160,10 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
     focusedCategory: chainId === null ? null : category,
   }),
   setCameraSyncEnabled: (enabled) => set({ cameraSyncEnabled: enabled }),
+  setAutoOrientOnLoad: (enabled) => {
+    persistAutoOrient(enabled)
+    set({ autoOrientOnLoad: enabled })
+  },
   fireClearAll: () => set(s => ({ clearAllSignal: s.clearAllSignal + 1 })),
   bumpLibraryVersion: () => set(s => ({ libraryVersion: s.libraryVersion + 1 })),
   reset: () => set({

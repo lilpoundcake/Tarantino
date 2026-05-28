@@ -21,6 +21,7 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
 import BuildIcon from '@mui/icons-material/Build'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import BiotechIcon from '@mui/icons-material/Biotech'
+import SettingsIcon from '@mui/icons-material/Settings'
 import LinkIcon from '@mui/icons-material/Link'
 import LinkOffIcon from '@mui/icons-material/LinkOff'
 import IconButton from '@mui/material/IconButton'
@@ -36,6 +37,7 @@ import { AlignmentPanel } from './components/AlignmentPanel'
 import { DVBFixerPanel } from './components/DVBFixerPanel'
 import { MutationsPanel } from './components/MutationsPanel'
 import { AntibodyEngineerPanel } from './components/AntibodyEngineerPanel'
+import { SettingsPanel } from './components/SettingsPanel'
 import { useStructureStore } from './stores/structureStore'
 import { useSelectionStore } from './stores/selectionStore'
 import { useMolstarSync } from './hooks/useMolstarSync'
@@ -54,6 +56,7 @@ const PANEL_TYPES = [
   { component: 'mutations', name: 'Mutations', icon: <EditNoteIcon sx={{ fontSize: 16 }} /> },
   { component: 'library', name: 'Library', icon: <FolderIcon sx={{ fontSize: 16 }} /> },
   { component: 'info', name: 'Info', icon: <InfoIcon sx={{ fontSize: 16 }} /> },
+  { component: 'settings', name: 'Settings', icon: <SettingsIcon sx={{ fontSize: 16 }} /> },
 ]
 
 let tabCounter = 0
@@ -181,6 +184,7 @@ function App() { // @dsp obj-a1000002
       case 'alignment': return <AlignmentPanel />
       case 'dvbfixer': return <DVBFixerPanel />
       case 'antibody-engineer': return <AntibodyEngineerPanel />
+      case 'settings': return <SettingsPanel />
       case 'mutations': return <MutationsPanel />
       default: return null
     }

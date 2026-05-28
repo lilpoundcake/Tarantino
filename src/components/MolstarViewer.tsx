@@ -177,24 +177,28 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
             }
 
             // Orient camera to PCA axes — same as Mol*'s "Orient Axes" UI button.
-            // SUPPRESS camera sync during this so the snapshot doesn't get mirrored
-            // to the other viewer mid-orientation (which would either fight a
-            // pending orient there, or overwrite its already-correct camera).
+            // Gated on the `autoOrientOnLoad` setting (default OFF; toggled in
+            // the Settings panel). When ON, suppress camera sync during the
+            // orient so the snapshot doesn't get mirrored to the other viewer
+            // mid-orientation (which would either fight a pending orient there
+            // or overwrite its already-correct camera).
             const pluginNow = pluginRef.current
             const storeAtLoad = useStructureStore.getState()
-            const wasSyncEnabled = storeAtLoad.cameraSyncEnabled
-            if (wasSyncEnabled) storeAtLoad.setCameraSyncEnabled(false)
-            setTimeout(() => {
-              if (cancelled) return
-              PluginCommands.Camera.OrientAxes(pluginNow)
-                .catch(() => {})
-                .finally(() => {
-                  // Restore sync after the orient animation settles
-                  setTimeout(() => {
-                    if (wasSyncEnabled) useStructureStore.getState().setCameraSyncEnabled(true)
-                  }, 600)
-                })
-            }, 200)
+            if (storeAtLoad.autoOrientOnLoad) {
+              const wasSyncEnabled = storeAtLoad.cameraSyncEnabled
+              if (wasSyncEnabled) storeAtLoad.setCameraSyncEnabled(false)
+              setTimeout(() => {
+                if (cancelled) return
+                PluginCommands.Camera.OrientAxes(pluginNow)
+                  .catch(() => {})
+                  .finally(() => {
+                    // Restore sync after the orient animation settles
+                    setTimeout(() => {
+                      if (wasSyncEnabled) useStructureStore.getState().setCameraSyncEnabled(true)
+                    }, 600)
+                  })
+              }, 200)
+            }
           }
         }
       })

@@ -61,6 +61,8 @@ a dockable multi-panel workspace:
   and an **Equivalent chains** section that auto-groups multimeric copies
   via sequence identity (with optional manual override persisted in
   `index.json`)
+- **Settings**: app-wide preferences (currently a single auto-orient-on-load
+  toggle, default OFF, persisted in `localStorage`)
 
 Selecting / hovering residues in 3D highlights them in Sequence and Alignment
 (bidirectional sync). The Alignment panel routes selection per-side to whichever
@@ -118,9 +120,12 @@ component's default ball-and-stick representation for `spacefill` so each ion
 renders as a Van der Waals sphere — `createStructureRepresentationParams(plugin,
 structure, { type: 'spacefill' })` is built once and `.update()`ed into every
 ion-component repr cell, then `runTask(updateTree())`. The default `physical`
-size theme uses each element's VdW radius. (c) auto-runs
-`PluginCommands.Camera.OrientAxes` to face the principal axis; camera sync is
-temporarily disabled during this orient.
+size theme uses each element's VdW radius. (c) **optionally** runs
+`PluginCommands.Camera.OrientAxes` to face the principal axis — gated on
+`useStructureStore.autoOrientOnLoad` (default OFF, toggled in the Settings
+panel, persisted in `localStorage` under key `tarantino.autoOrientOnLoad`).
+When ON, camera sync is temporarily disabled during the orient so the
+snapshot doesn't get mirrored to the other viewer mid-orientation.
 
 ### Camera Sync (`src/hooks/useCameraSync.ts`)
 
@@ -138,8 +143,18 @@ has a custom Vite plugin (`serve-structures`) that recursively scans
 subfolders, **skips `.*` and `_*` directories**, and merges `index.json`
 entries with auto-detected files. It also **auto-prunes** stale `index.json`
 entries whose file no longer exists on disk and **strips orphan `parent`
-references** (parent file deleted but child still alive) so orphaned children
-become roots and can display the starred-descendant hint chip.
+references** — but only when the parent file is genuinely missing from
+the filesystem (checked against `onDisk`, NOT against the subset of files
+that happen to live in `index.json`). This matters when a user drops a
+PDB into `structures/` without curating `index.json` and then runs
+DVBFixer on it: the input is auto-detected, the DVBFixer output entry's
+`parent` points at that auto-detected file, and the orphan-pruner must
+NOT strip the link.
+
+Auto-detected entries preserve the filename's actual case
+(`mystructure.pdb` → `"mystructure"`, not `"MYSTRUCTURE"`). The same
+rule applies to the `PUT /api/library/meta` and `POST /api/library/star`
+auto-promote fallbacks server-side.
 
 Entries can have a `parent` field pointing to another entry's `file`. The
 `StructureLibrary` component renders the result as an expandable tree
@@ -582,6 +597,24 @@ pipeline ran. Intermediate outputs become children of the previous
 step's output (deep but discoverable). `bumpLibraryVersion()` is called
 on completion to force a re-fetch.
 
+### Settings (`src/components/SettingsPanel.tsx`)
+
+App-wide preferences live in the structure store and are persisted in
+`localStorage`. Currently a single toggle:
+
+- **Auto-orient on load** (`autoOrientOnLoad`, default **OFF**, key
+  `tarantino.autoOrientOnLoad`). When ON, every loaded structure goes
+  through `PluginCommands.Camera.OrientAxes` in `MolstarViewer` post-load
+  (camera sync suppressed for the duration of the orient). When OFF, the
+  structure keeps its authored orientation.
+
+The panel renders one MUI `Switch` per preference. `setAutoOrientOnLoad`
+writes through to `localStorage` immediately (see
+`persistAutoOrient`/`loadPersistedAutoOrient` helpers at the top of
+`structureStore.ts`).
+
+Discoverable via the `+` menu on any tabset — not in the default layout.
+
 ### Empty 3D Click Behavior
 
 `useMolstarSync.attachEmptyClickCleanup` is a single unified handler attached
@@ -612,7 +645,7 @@ src/
   index.css, molstar-theme.scss # FlexLayout vars + Mol* SCSS skin
 
   components/
-    MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes)
+    MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes gated on autoOrientOnLoad)
     SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init
     StructureLibrary.tsx        # Tree of structures, starring, A/B slot toggle, hint chip (gated on depth+!starred only)
     StructureInfo.tsx           # Stats summary at top, single-field metadata + Notes, EquivalentChainsSection (auto-detect via NW + trimmed identity, manual override persisted in index.json)
@@ -622,6 +655,7 @@ src/
     DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
     MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, zebra rows
     AntibodyEngineerPanel.tsx   # End-to-end mutate-by-DB-row tool: chain detection, validation, SSE-driven progress, auto-load output
+    SettingsPanel.tsx           # App-wide preferences (auto-orient-on-load toggle, persisted in localStorage)
     FileLoader.tsx              # Upload button (honors loadTargetSlot)
     ChainSelector.tsx           # Chain dropdown (same filter+sort as SequenceViewer)
 
@@ -631,7 +665,7 @@ src/
     useCameraSync.ts            # Bidirectional camera mirror via canvas3d.didDraw
 
   stores/
-    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains, elements, meta (incl. optional equivalentChains override), focusedChainId+Category, cameraSyncEnabled, clearAllSignal
+    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains, elements, meta (incl. optional equivalentChains override), focusedChainId+Category, cameraSyncEnabled, autoOrientOnLoad (localStorage-persisted), clearAllSignal
     selectionStore.ts           # selected/hovered residues, _lock mechanism
 
   lib/
@@ -656,5 +690,5 @@ scripts/
 structures/                     # Manifest (index.json with parent/starred/equivalentChains/mutationIds/_engineerChecksum), pdb files, dvb_<cmd>_<ts>/ outputs, _dvb_failed/ for single-command failures, _engineer_failed/ for Antibody Engineer pipeline failures
 mutations.json                  # Git-tracked backup of the postgres `mutations` table. Auto-written after every CRUD, auto-seeded on empty table.
 docker-compose.yml              # postgres:16-alpine, service `db`
-vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, strip orphan parents, skip `.*`/`_*`)
+vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, strip orphan parents only when parent file is genuinely off-disk, preserve filename case, skip `.*`/`_*`)
 ```
