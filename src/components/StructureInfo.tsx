@@ -9,10 +9,13 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
+import MenuItem from '@mui/material/MenuItem'
 import { useStructureStore, type StructureMeta } from '../stores/structureStore'
 import { computeEquivalentChains, filterSequenceableChains, validateGrouping } from '../lib/chain-grouping'
 
-const META_FIELDS: Array<keyof StructureMeta> = ['name', 'organism', 'method', 'resolution', 'description', 'equivalentChains']
+const META_FIELDS: Array<keyof StructureMeta> = ['name', 'organism', 'method', 'resolution', 'description', 'iggSubtype', 'allotype', 'equivalentChains']
+
+const IGG_SUBTYPES = ['', 'IgG1', 'IgG2', 'IgG3', 'IgG4', 'IgA', 'IgM', 'IgE', 'IgD']
 
 // Deep-equality check for the equivalentChains field (`string[][]`). Used by
 // the meta-changed detector so a deserialized array doesn't fire spurious
@@ -79,6 +82,8 @@ export function StructureInfo() {
             method: meta.method,
             resolution: meta.resolution,
             description: meta.description,
+            iggSubtype: meta.iggSubtype,
+            allotype: meta.allotype,
             // `null` tells the backend to DELETE the key (fall back to
             // auto-detection); an array (even empty) is treated as an
             // explicit override and persisted as-is.
@@ -144,6 +149,26 @@ export function StructureInfo() {
       </Typography>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 0.5, mb: 2 }}>
         <TextField label="Name" value={meta.name} onChange={(e) => setMeta({ name: e.target.value })} fullWidth />
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField
+            select
+            label="IgG Subtype"
+            value={meta.iggSubtype ?? ''}
+            onChange={(e) => setMeta({ iggSubtype: e.target.value })}
+            sx={{ flex: 1 }}
+          >
+            {IGG_SUBTYPES.map(opt => (
+              <MenuItem key={opt || '__empty__'} value={opt}>{opt || <em>— none —</em>}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Allotype"
+            value={meta.allotype ?? ''}
+            onChange={(e) => setMeta({ allotype: e.target.value })}
+            placeholder="e.g. G1m17,1 or nG1m1"
+            sx={{ flex: 1 }}
+          />
+        </Box>
       </Box>
 
       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>

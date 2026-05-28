@@ -43,6 +43,10 @@ interface SubclassDetection {
 interface ValidationIssue {
   rowId: number
   kind: 'conflict' | 'out-of-range' | 'no-target-chain'
+  /** 'error' blocks the Run button; 'warning' is informational only.
+   *  out-of-range is non-blocking because DVBFixer now skips residues
+   *  not present in the structure. */
+  severity: 'error' | 'warning'
   message: string
 }
 
@@ -210,7 +214,7 @@ export function AntibodyEngineerPanel() {
       if (!row) continue
       const targetChains = equivalentChainsMap[row.chain] ?? []
       if (targetChains.length === 0) {
-        issues.push({ rowId: id, kind: 'no-target-chain', message: `No ${row.chain} chains detected in the loaded structure.` })
+        issues.push({ rowId: id, kind: 'no-target-chain', severity: 'error', message: `No ${row.chain} chains detected in the loaded structure.` })
         continue
       }
       const tokens = row.mutations.split(',').map(t => t.trim()).filter(Boolean)
@@ -226,7 +230,7 @@ export function AntibodyEngineerPanel() {
         // (chains in the same equivalent group share residue ranges).
         const det = detections.find(d => d.chainId === targetChains[0])
         if (det && mapEuToAuthSeqId(chains.find(c => c.id === det.chainId)!.residues, p.position, det.cls) === null) {
-          issues.push({ rowId: id, kind: 'out-of-range', message: `Position ${p.position} not in chain ${targetChains[0]} (${det.cls.region}).` })
+          issues.push({ rowId: id, kind: 'out-of-range', severity: 'warning', message: `Position ${p.position} not in chain ${targetChains[0]} (${det.cls.region}) — DVBFixer will skip it.` })
         }
       }
     }
@@ -235,7 +239,7 @@ export function AntibodyEngineerPanel() {
       const unique = Array.from(new Set(ids))
       if (unique.length > 1) {
         for (const id of unique) {
-          issues.push({ rowId: id, kind: 'conflict', message: `Conflicts with another selection at ${key}.` })
+          issues.push({ rowId: id, kind: 'conflict', severity: 'error', message: `Conflicts with another selection at ${key}.` })
         }
       }
     }
@@ -281,8 +285,12 @@ export function AntibodyEngineerPanel() {
   const [runError, setRunError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  // Only ERROR-severity issues block the Run button. Warnings (currently:
+  // out-of-range residues) are non-blocking — DVBFixer's recent versions
+  // silently skip residues missing from the structure rather than failing.
+  const hasBlockingIssues = validationIssues.some(i => i.severity === 'error')
   const canRun = checked.size > 0
-    && validationIssues.length === 0
+    && !hasBlockingIssues
     && isPrimaryLoaded
     && phase !== 'running'
 
@@ -468,7 +476,7 @@ export function AntibodyEngineerPanel() {
                       <Chip
                         label={iss.kind}
                         size="small"
-                        color="error"
+                        color={iss.severity === 'error' ? 'error' : 'warning'}
                         variant="outlined"
                         sx={{ fontSize: '0.6rem', height: 18 }}
                       />

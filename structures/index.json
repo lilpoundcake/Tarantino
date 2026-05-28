@@ -1,1 +1,93 @@
-[]
+[
+  {
+    "id": "FcRn.pdb",
+    "file": "FcRn.pdb",
+    "name": "FcRn",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Auto-detected from structures/ folder",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
+  },
+  {
+    "id": "C1q.pdb",
+    "file": "C1q.pdb",
+    "name": "C1q",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Auto-detected from structures/ folder",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
+  },
+  {
+    "id": "FcgRI.pdb",
+    "file": "FcgRI.pdb",
+    "name": "FcgRI",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Auto-detected from structures/ folder",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
+  },
+  {
+    "id": "FcgRIIIa.pdb",
+    "file": "FcgRIIIa.pdb",
+    "name": "FcgRIIIa-158F (low)",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Contains mutation 176F",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
+  },
+  {
+    "id": "FcgRIIIb.pdb",
+    "file": "FcgRIIIb.pdb",
+    "name": "FcgRIIIb",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Auto-detected from structures/ folder",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
+  },
+  {
+    "id": "FcgRIIa.pdb",
+    "file": "FcgRIIa.pdb",
+    "name": "FcgRIIa - 131H (high)",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Contains mutation 167H",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
+  },
+  {
+    "id": "FcgRIIb.pdb",
+    "file": "FcgRIIb.pdb",
+    "name": "FcgRIIb",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Auto-detected from structures/ folder",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
+  }
+]

@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import ClearIcon from '@mui/icons-material/Deselect'
 import ZoomInIcon from '@mui/icons-material/CenterFocusStrong'
 import { useStructureStore } from '../stores/structureStore'
@@ -30,7 +32,7 @@ const NON_SEQ_COMPS = new Set([
   'CL', 'BR', 'SO4', 'PO4', 'NO3', 'CD', 'HG', 'SR', 'BA',
 ])
 
-function getSequenceChains(allChains: Array<{ id: string; entityId: string; residues: Array<{ seqId: number; compId: string; present?: boolean }> }>) {
+function getSequenceChains(allChains: Array<{ id: string; entityId: string; residues: Array<{ seqId: number; authSeqId?: number | null; compId: string; present?: boolean }> }>) {
   return allChains
     .map(chain => ({
       ...chain,
@@ -50,6 +52,10 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
   const chains = getSequenceChains(allChains)
   const globalChainId = useStructureStore((s) => s.activeChainId)
   const [localChainId, setLocalChainId] = useState<string | null>(initialChainId ?? null)
+  // Per-panel toggle: 'structure' shows the PDB auth_seq_id (default);
+  // 'order' shows 1-based sequential position within the chain. Selection
+  // and 3D-sync continue to use the actual structure seqId either way.
+  const [numberingMode, setNumberingMode] = useState<'structure' | 'order'>('structure')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Initialize local chain from global on first load, or when chains change and local is invalid.
@@ -226,6 +232,33 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
           </Typography>
         )}
         <Box sx={{ flex: 1 }} />
+        <Tooltip title="Numbering: PDB residue ids (structure) vs sequential 1-based position (order)" placement="bottom">
+          <span style={{ display: 'inline-flex' }}>
+            <ToggleButtonGroup
+              size="small"
+              value={numberingMode}
+              exclusive
+              onChange={(_e, v) => { if (v) setNumberingMode(v) }}
+              sx={{
+                mr: 1,
+                '& .MuiToggleButton-root': {
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                  py: 0,
+                  px: 0.75,
+                  height: 20,
+                  lineHeight: 1,
+                  textTransform: 'none',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                },
+              }}
+            >
+              <ToggleButton value="structure">Structure</ToggleButton>
+              <ToggleButton value="order">Sequence</ToggleButton>
+            </ToggleButtonGroup>
+          </span>
+        </Tooltip>
         <Box sx={{ display: 'flex', gap: 0.5 }}>
           {Object.entries(CLASS_COLORS).filter(([k]) => k !== 'other').map(([label, color]) => (
             <Chip
@@ -252,7 +285,18 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
         }}
       >
         {residueLines.map((lineResidues, lineIdx) => {
-          const lineStart = lineResidues[0]?.seqId ?? 0
+          // In 'structure' mode show the first residue's PDB author residue
+          // number (auth_seq_id — what the structure file literally says,
+          // which may start at any number / have insertion gaps). In 'order'
+          // mode show the 1-based position within the visible chain (counts
+          // ALL residues, including SEQRES-missing ones, so the gutter
+          // aligns with the rendered cells). Falls back to seqId when
+          // authSeqId isn't available (SEQRES-only residue).
+          const orderLineStart = lineIdx * RESIDUES_PER_LINE + 1
+          const first = lineResidues[0]
+          const lineStart = numberingMode === 'order'
+            ? orderLineStart
+            : (first?.authSeqId ?? first?.seqId ?? 0)
           return (
             <Box key={lineIdx} sx={{ display: 'flex', alignItems: 'flex-start', mb: 0.5 }}>
               {/* Line number — aligned to residue letters (12px number above + 20px letter) */}
@@ -323,13 +367,23 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
                         whiteSpace: 'nowrap',
                         visibility: showNumber ? 'visible' : 'hidden',
                       }}>
-                        {r.seqId}
+                        {numberingMode === 'order'
+                          ? lineIdx * RESIDUES_PER_LINE + rIdx + 1
+                          : (r.authSeqId ?? r.seqId)}
                       </span>
                       <Tooltip
-                        title={isMissing
-                          ? `${r.compId} ${r.seqId} (${rClass}) — declared in SEQRES, missing from structure`
-                          : `${r.compId} ${r.seqId} (${rClass})`
-                        }
+                        title={(() => {
+                          const orderPos = lineIdx * RESIDUES_PER_LINE + rIdx + 1
+                          // Tooltip always shows BOTH numbers — the PDB
+                          // author residue number (or fallback) and the
+                          // 1-based ordinal position — so the user can
+                          // cross-reference regardless of toggle state.
+                          const pdb = r.authSeqId ?? r.seqId
+                          const numbers = `PDB ${pdb} · #${orderPos}`
+                          return isMissing
+                            ? `${r.compId} ${numbers} (${rClass}) — declared in SEQRES, missing from structure`
+                            : `${r.compId} ${numbers} (${rClass})`
+                        })()}
                         placement="top"
                         enterDelay={300}
                       >

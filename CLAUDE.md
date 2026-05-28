@@ -252,8 +252,14 @@ HID/HIE/HIP → H, SEP → S, MSE → M, etc.); `toCanonicalThree()` maps back.
 `extractChains` in `molstar-helpers.ts` walks ATOM records to collect residues
 per chain, then merges in **SEQRES residues missing from ATOM** by looking up
 `model.sequence.byEntityKey[entityIndex]` (via `model.entities.getEntityIndex(entityId)`)
-and walking its `seqId.value(i)` / `compId.value(i)` columns. Each residue gets
-a `present: boolean` — `true` if it has coordinates, `false` if SEQRES-only.
+and walking its `seqId.value(i)` / `compId.value(i)` columns. Each residue gets:
+- `seqId: number` — the canonical `label_seq_id` (1-based sequential per entity).
+  Used by every MolScript / selection / 3D-sync path in the codebase.
+- `authSeqId?: number | null` — the PDB author residue number (`auth_seq_id`,
+  what the structure file literally says, e.g. 250, 251, 252...). Null for
+  SEQRES-only residues (no ATOM coordinates → no authored number available).
+  Displayed in the Sequence panel's "Structure" numbering mode.
+- `present: boolean` — `true` if the residue has coordinates, `false` if SEQRES-only.
 
 `SequenceViewer`, `ChainSelector`, **and** `AlignmentPanel`'s chain picker all
 apply the same filter pipeline to the store's `chains`:
@@ -274,8 +280,18 @@ in the filtered list, otherwise fall back to filtered `chains[0].id`.
 
 Missing residues render with greyed text (`#b5bfcc`), dashed border, italic font,
 and `cursor: not-allowed`; mouse handlers are nulled out so they can't be selected
-or hovered. Tooltip reads `"<RES> <seqId> (<class>) — declared in SEQRES, missing
-from structure"`.
+or hovered. Tooltip reads `"<RES> PDB <auth> · #<order> (<class>) — declared in SEQRES, missing from structure"`.
+
+**Numbering toggle.** A two-button `ToggleButtonGroup` in the toolbar (per-panel
+state, default **Structure**) swaps between:
+- **Structure** — show `authSeqId` (PDB author residue number, e.g. 250 …
+  with insertion gaps preserved). Falls back to `seqId` for SEQRES-only residues.
+- **Sequence** — show the 1-based ordinal position within the visible chain
+  (1, 2, 3 …). Counts every residue including SEQRES-missing ones so the
+  gutter aligns with rendered cells.
+Tooltip always shows BOTH numbers (`PDB 322 · #205`) so users can cross-reference
+without flipping the toggle. Selection / 3D sync continue to use the canonical
+`seqId` (`label_seq_id`) regardless of toggle state.
 
 ### Info Panel + Equivalent Chains (`src/components/StructureInfo.tsx`, `src/lib/chain-grouping.ts`)
 
@@ -288,9 +304,11 @@ from structure"`.
 2. **File** — file path in a monospace `Paper` with
    `wordBreak: 'break-all'` so long DVBFixer output paths
    (`dvb_<cmd>_<ts>/<input>_<cmd>.pdb`) wrap instead of overflowing.
-3. **Metadata** — single `Name` TextField. (Organism / Method /
-   Resolution are still in `StructureMeta` + `index.json` for backwards
-   compat, but the inputs are hidden.)
+3. **Metadata** — three fields: `Name` (free text), **IgG Subtype**
+   (singleSelect: `'' | IgG1 | IgG2 | IgG3 | IgG4 | IgA | IgM | IgE | IgD`),
+   **Allotype** (free text, e.g. `G1m17,1` / `nG1m1`). The legacy fields
+   (Organism / Method / Resolution) are still in `StructureMeta` +
+   `index.json` for backwards compat, but their inputs are hidden.
 4. **Notes** — multi-line `description` TextField.
 5. **Equivalent chains** — see below.
 
@@ -408,7 +426,7 @@ active structure. Failures leave the viewer untouched.
   'EU'|'Kabat' }`. Streams `data: <JSON>\n\n` events. See the dedicated
   Antibody Engineer architecture section above.
 - `POST /api/library/star { file }` — toggles `starred` flag in `index.json` (one starred per family).
-- `PUT /api/library/meta { file, name?, organism?, method?, resolution?, description?, equivalentChains? }` — persists
+- `PUT /api/library/meta { file, name?, organism?, method?, resolution?, description?, iggSubtype?, allotype?, equivalentChains? }` — persists
   per-entry metadata edits into `index.json`. Promotes auto-detected files to manual entries on
   demand. Only patches the whitelisted fields — other entry fields (`id`, `parent`, `starred`, etc.) are
   preserved. **`null` is treated as "delete this key"** so the Info panel's `Reset` button can
@@ -570,11 +588,18 @@ lookup before dispatching to `runEngineerPipeline`.
 - **Mutations** — fetches `/api/mutations`, filters rows by detected IgG
   subclass (empty `igg_subclass` = universal, applies to every
   structure). Live validation `useMemo` over `(checked, allRows,
-  equivalentChainsMap, detections, chains)` produces error chips per
-  row: `'no-target-chain'` (no detected HC/LC for the row's chain type),
-  `'out-of-range'` (target EU position not in this fragment per
-  `mapEuToAuthSeqId`), `'conflict'` (two checked rows both target the
-  same `(chainId, position)`). Below the list, a row of chips shows
+  equivalentChainsMap, detections, chains)` tags each issue with a
+  `severity: 'error' | 'warning'`:
+  - `'no-target-chain'` (no detected HC/LC for the row's chain type)
+    → **error**, blocks Run.
+  - `'conflict'` (two checked rows both target the same `(chainId,
+    position)`) → **error**, blocks Run.
+  - `'out-of-range'` (target EU position not in this fragment per
+    `mapEuToAuthSeqId`) → **warning**, NON-blocking. DVBFixer's recent
+    versions silently skip missing residues, so we let the user
+    proceed and only flag it with an amber chip + tooltip.
+  Only `severity === 'error'` issues disable the Run button
+  (`hasBlockingIssues`). Below the list, a row of chips shows
   `equivalentChainsMap` (e.g. `HC: H, I` / `LC: A, C`) and the
   `previewMutateArgs` count with a tooltip listing the literal
   `--mutate H:322:ALA …` args.
@@ -646,15 +671,15 @@ src/
 
   components/
     MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes gated on autoOrientOnLoad)
-    SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init
+    SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init, Structure/Sequence numbering toggle
     StructureLibrary.tsx        # Tree of structures, starring, A/B slot toggle, hint chip (gated on depth+!starred only)
-    StructureInfo.tsx           # Stats summary at top, single-field metadata + Notes, EquivalentChainsSection (auto-detect via NW + trimmed identity, manual override persisted in index.json)
+    StructureInfo.tsx           # Stats summary at top, metadata (Name + IgG Subtype + Allotype) + Notes, EquivalentChainsSection (auto-detect via NW + trimmed identity, manual override persisted in index.json)
     ElementsTable.tsx           # Tree, visibility toggles, row-click camera focus (sync-suppressed), "Show Interface"
     InteractionsPanel.tsx       # Computed contacts, focused-chain banner
     AlignmentPanel.tsx          # Pairwise NW alignment, per-source plugin routing
     DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
     MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, zebra rows
-    AntibodyEngineerPanel.tsx   # End-to-end mutate-by-DB-row tool: chain detection, validation, SSE-driven progress, auto-load output
+    AntibodyEngineerPanel.tsx   # End-to-end mutate-by-DB-row tool: chain detection, severity-tagged validation (out-of-range = warning, non-blocking), SSE-driven progress, auto-load output
     SettingsPanel.tsx           # App-wide preferences (auto-orient-on-load toggle, persisted in localStorage)
     FileLoader.tsx              # Upload button (honors loadTargetSlot)
     ChainSelector.tsx           # Chain dropdown (same filter+sort as SequenceViewer)
@@ -665,11 +690,11 @@ src/
     useCameraSync.ts            # Bidirectional camera mirror via canvas3d.didDraw
 
   stores/
-    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains, elements, meta (incl. optional equivalentChains override), focusedChainId+Category, cameraSyncEnabled, autoOrientOnLoad (localStorage-persisted), clearAllSignal
+    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains (each residue has seqId + optional authSeqId), elements, meta (incl. iggSubtype + allotype + optional equivalentChains override), focusedChainId+Category, cameraSyncEnabled, autoOrientOnLoad (localStorage-persisted), clearAllSignal
     selectionStore.ts           # selected/hovered residues, _lock mechanism
 
   lib/
-    molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (with SEQRES merge + present flag)
+    molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (label_seq_id as seqId + auth_seq_id as authSeqId + SEQRES merge + present flag)
     alignment.ts                # Needleman-Wunsch + BLOSUM62 + chainToSequence + trimmedIdentity (terminal-gap-aware)
     chain-grouping.ts           # computeEquivalentChains (pairwise NW + union-find), validateGrouping, filterSequenceableChains
     antibody-references.ts      # Hardcoded UniProt CH/CL sequences (IgG1-4, κ, λ) + EU domain anchors + landmark self-check

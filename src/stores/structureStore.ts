@@ -18,7 +18,13 @@ export interface ChainInfo {
   id: string
   entityId: string
   residues: Array<{
+    /** Canonical 1-based sequential id (label_seq_id) — used for selection
+     *  and 3D sync everywhere. */
     seqId: number
+    /** PDB author residue number (auth_seq_id) — what the structure file
+     *  literally says. Null for SEQRES-only residues. Display this for
+     *  "structure" numbering. */
+    authSeqId?: number | null
     compId: string
     /** False if the residue exists in the PDB SEQRES block but is absent
      *  from the ATOM records (disordered loop, missing terminus, etc.). */
@@ -42,6 +48,11 @@ export interface StructureMeta {
   method: string
   resolution: string
   description: string
+  /** Antibody subtype tag — usually IgG1/IgG2/IgG3/IgG4, but free-form so
+   *  exotic constructs (IgA, IgM, chimeras) can be captured too. */
+  iggSubtype: string
+  /** Antibody allotype designation (e.g. G1m17,1 / G1m3 / nG1m1). Free-form. */
+  allotype: string
   /** Manual override of the equivalent-chain grouping shown in the Info
    *  panel. Each inner array is one group of chain ids. `undefined` →
    *  auto-detect via sequence identity (no persisted override). An empty
@@ -116,6 +127,8 @@ const defaultMeta: StructureMeta = {
   method: '',
   resolution: '',
   description: '',
+  iggSubtype: '',
+  allotype: '',
 }
 
 export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp obj-a100000a

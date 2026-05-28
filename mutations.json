@@ -47,5 +47,26 @@
     "mutation_name": "LALAPG",
     "mutations": "L234A,L235A,P329G",
     "igg_subclass": "IgG1"
+  },
+  {
+    "id": 8,
+    "chain": "HC",
+    "mutation_name": "IgG1 G1m3",
+    "mutations": "K214R,D356E,L358M",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 9,
+    "chain": "HC",
+    "mutation_name": "IgG1 G1m3,1",
+    "mutations": "K214R",
+    "igg_subclass": "IgG1"
+  },
+  {
+    "id": 10,
+    "chain": "HC",
+    "mutation_name": "S228P",
+    "mutations": "S228P",
+    "igg_subclass": "IgG4"
   }
 ]

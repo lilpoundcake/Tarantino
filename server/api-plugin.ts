@@ -448,7 +448,7 @@ export function apiPlugin(): Plugin {
           // A `null` value is treated as "delete this key" so the client can
           // remove a manual equivalent-chains override and fall back to
           // auto-detection without leaving an empty array in index.json.
-          for (const key of ['name', 'organism', 'method', 'resolution', 'description', 'equivalentChains'] as const) {
+          for (const key of ['name', 'organism', 'method', 'resolution', 'description', 'iggSubtype', 'allotype', 'equivalentChains'] as const) {
             if (!(key in body)) continue
             if (body[key] === null) delete entry[key]
             else entry[key] = body[key]

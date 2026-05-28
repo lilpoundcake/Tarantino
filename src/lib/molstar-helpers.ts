@@ -130,7 +130,14 @@ export interface ChainData {
   id: string
   entityId: string
   residues: Array<{
+    /** Canonical sequential id (label_seq_id in mmCIF terms). Used for
+     *  every MolScript / selection / 3D-sync path in the codebase. */
     seqId: number
+    /** The PDB author's residue number (auth_seq_id). May skip / restart
+     *  / contain insertion-code gaps. For SEQRES-only residues missing
+     *  from ATOM, this is null and the UI falls back to seqId. Display
+     *  this for "structure" numbering mode. */
+    authSeqId?: number | null
     compId: string
     /** False if the residue is in the SEQRES block but missing from the
      *  ATOM records (disordered loop, missing terminus, etc.). True for
@@ -158,6 +165,7 @@ export function extractChains(plugin: PluginUIContext): ChainData[] {
       loc.element = OrderedSet.getAt(elements, j)
       const chainId = SP.chain.label_asym_id(loc)
       const seqId = SP.residue.label_seq_id(loc)
+      const authSeqId = SP.residue.auth_seq_id(loc)
       const compId = SP.atom.label_comp_id(loc)
       const entityId = SP.chain.label_entity_id(loc)
 
@@ -171,7 +179,7 @@ export function extractChains(plugin: PluginUIContext): ChainData[] {
 
       const chain = chainsMap.get(chainId)!
       if (!chain.residues.some(r => r.seqId === seqId)) {
-        chain.residues.push({ seqId, compId, present: true })
+        chain.residues.push({ seqId, authSeqId, compId, present: true })
       }
     }
   }
@@ -204,7 +212,11 @@ export function extractChains(plugin: PluginUIContext): ChainData[] {
             merged.push(existing)
             presentSeqIds.delete(sid)
           } else {
-            merged.push({ seqId: sid, compId: cid, present: false })
+            // SEQRES-only residue (missing from ATOM coords). No authSeqId
+            // is available — the structure file doesn't tell us what the
+            // author would have numbered this position. Set to null; the
+            // UI falls back to the sequential seqId for display.
+            merged.push({ seqId: sid, authSeqId: null, compId: cid, present: false })
           }
         }
         // Any ATOM-present residues whose seqId isn't in SEQRES (e.g.
