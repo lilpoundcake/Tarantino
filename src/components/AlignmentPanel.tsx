@@ -65,6 +65,38 @@ export function AlignmentPanel() {
   const secondaryFile = useStructureStore((s) => s.secondaryFileName)
   const primaryPlugin = useStructureStore((s) => s.plugin)
   const secondaryPlugin = useStructureStore((s) => s.secondaryPlugin)
+  const alignmentLabelMode = useStructureStore((s) => s.alignmentLabelMode)
+  const libraryVersion = useStructureStore((s) => s.libraryVersion)
+
+  // file → name lookup from structures/index.json so the source-labels
+  // block can display the metadata name when the user selects that mode
+  // in Settings. Re-fetched whenever libraryVersion bumps (Info-panel
+  // meta edit, star toggle, DVBFixer run, etc.).
+  const [fileNameMap, setFileNameMap] = useState<Map<string, string>>(new Map())
+  useEffect(() => {
+    fetch('/structures/index.json', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : [])
+      .then((entries: Array<{ file?: string; name?: string; kind?: string }>) => {
+        const m = new Map<string, string>()
+        for (const e of entries) {
+          if (e.kind === 'folder') continue
+          if (e.file && e.name) m.set(e.file, e.name)
+        }
+        setFileNameMap(m)
+      })
+      .catch(() => {})
+  }, [libraryVersion])
+
+  // Resolve a source label (file path or metadata name) based on the
+  // alignmentLabelMode setting. Falls back to the file path when no name
+  // is known (e.g. auto-detected file with no manual metadata yet).
+  const labelFor = useCallback((filePath: string): string => {
+    if (alignmentLabelMode === 'name') {
+      const n = fileNameMap.get(filePath)
+      if (n && n.trim()) return n
+    }
+    return filePath
+  }, [alignmentLabelMode, fileNameMap])
 
   const options = useMemo<ChainOption[]>(() => {
     const out: ChainOption[] = []
@@ -394,13 +426,13 @@ export function AlignmentPanel() {
           <Typography variant="caption" sx={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.65rem' }}>
             <Box component="span" sx={{ color: 'primary.main', fontWeight: 700 }}>A</Box>
             <Box component="span" sx={{ color: 'text.secondary', ml: 0.5 }}>
-              {optA.fileName} · chain {optA.chainId} · {optA.aaCount} aa (from {optA.source === 'A' ? 'primary viewer' : 'secondary viewer'})
+              {labelFor(optA.fileName)} · chain {optA.chainId} · {optA.aaCount} aa (from {optA.source === 'A' ? 'primary viewer' : 'secondary viewer'})
             </Box>
           </Typography>
           <Typography variant="caption" sx={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.65rem' }}>
             <Box component="span" sx={{ color: 'primary.main', fontWeight: 700 }}>B</Box>
             <Box component="span" sx={{ color: 'text.secondary', ml: 0.5 }}>
-              {optB.fileName} · chain {optB.chainId} · {optB.aaCount} aa (from {optB.source === 'A' ? 'primary viewer' : 'secondary viewer'})
+              {labelFor(optB.fileName)} · chain {optB.chainId} · {optB.aaCount} aa (from {optB.source === 'A' ? 'primary viewer' : 'secondary viewer'})
             </Box>
           </Typography>
         </Box>

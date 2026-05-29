@@ -61,8 +61,8 @@ a dockable multi-panel workspace:
   and an **Equivalent chains** section that auto-groups multimeric copies
   via sequence identity (with optional manual override persisted in
   `index.json`)
-- **Settings**: app-wide preferences (currently a single auto-orient-on-load
-  toggle, default OFF, persisted in `localStorage`)
+- **Settings**: app-wide preferences (auto-orient-on-load toggle + Alignment
+  source-label toggle [File / Name]; all persisted in `localStorage`)
 
 Selecting / hovering residues in 3D highlights them in Sequence and Alignment
 (bidirectional sync). The Alignment panel routes selection per-side to whichever
@@ -146,6 +146,14 @@ every frame, so by the time B's echo-draw fires `subB`, `lastAppliedToB` has
 already been overwritten by A's newer frame, the equality fails, and the echo
 back to A interrupts A's in-flight animation. The pending-flag pattern is
 value-independent and survives multi-frame animations.
+
+**Skip-mirror-from-empty-viewer**. The mirror also returns early when
+`src.managers.structure.hierarchy.current.structures.length === 0`. An
+empty viewer has a meaningless default camera (tiny radiusMax, origin
+target); mirroring it onto a viewer that DOES have a structure freezes
+the destination at a useless zoom level. Common scenario it fixes:
+user opens a structure on A while B is still empty — B's idle didDraw
+events would otherwise push B's default state onto A.
 
 ### Camera ownership: `manualReset: true`
 
@@ -730,20 +738,36 @@ on completion to force a re-fetch.
 ### Settings (`src/components/SettingsPanel.tsx`)
 
 App-wide preferences live in the structure store and are persisted in
-`localStorage`. Currently a single toggle:
+`localStorage`. Two preferences today:
 
-- **Auto-orient on load** (`autoOrientOnLoad`, default **OFF**, key
-  `tarantino.autoOrientOnLoad`). When ON, every loaded structure goes
-  through `PluginCommands.Camera.OrientAxes` in `MolstarViewer` post-load
-  (camera sync suppressed for the duration of the orient). When OFF, the
-  structure keeps its authored orientation.
+- **Viewer → Auto-orient on load** (`autoOrientOnLoad`, default **OFF**,
+  key `tarantino.autoOrientOnLoad`). When ON, every loaded structure
+  goes through `PluginCommands.Camera.OrientAxes` in `MolstarViewer`
+  post-load (camera sync suppressed for the duration of the orient).
+  When OFF, the structure keeps its authored orientation but is still
+  fit to the viewport via `camera.reset(undefined, 0)` (necessary
+  because `manualReset: true` suppresses Mol*'s built-in auto-fit).
+- **Alignment → Source label** (`alignmentLabelMode`, default
+  `'file'`, key `tarantino.alignmentLabelMode`). Toggles what the
+  AlignmentPanel's source-labels block (above the alignment view)
+  shows for each side: the **file** path (default — e.g.
+  `FcRn.pdb`) or the entry's metadata **name** (the user-editable
+  `name` field from the Info panel). When `'name'` and a non-empty
+  name exists, falls back to the file path; otherwise displays the
+  file path.
 
-The panel renders one MUI `Switch` per preference. `setAutoOrientOnLoad`
-writes through to `localStorage` immediately (see
-`persistAutoOrient`/`loadPersistedAutoOrient` helpers at the top of
-`structureStore.ts`).
+The panel renders one MUI control per preference (`Switch` for booleans,
+`ToggleButtonGroup` for enums). Setters write through to `localStorage`
+immediately via the matching `persistX` / `loadPersistedX` helpers at
+the top of `structureStore.ts`.
 
-Discoverable via the `+` menu on any tabset — not in the default layout.
+`AlignmentPanel` fetches `/structures/index.json` on mount and on every
+`libraryVersion` bump, builds a `Map<file, name>`, and exposes
+`labelFor(filePath)` to render the right value per the mode. This
+works for both primary (A) and secondary (B) viewer structures.
+
+Discoverable in the default layout's left column (paired with Info) as
+of the latest layout update; also accessible via the `+` menu.
 
 ### Empty 3D Click Behavior
 
@@ -785,7 +809,7 @@ src/
     DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
     MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, zebra rows
     AntibodyEngineerPanel.tsx   # End-to-end mutate-by-DB-row tool: chain detection, severity-tagged validation (out-of-range = warning, non-blocking), SSE-driven progress, auto-load output
-    SettingsPanel.tsx           # App-wide preferences (auto-orient-on-load toggle, persisted in localStorage)
+    SettingsPanel.tsx           # App-wide preferences (auto-orient-on-load, Alignment source-label mode); all localStorage-persisted
     FileLoader.tsx              # Upload button (honors loadTargetSlot)
     ChainSelector.tsx           # Chain dropdown (same filter+sort as SequenceViewer)
 
@@ -795,7 +819,7 @@ src/
     useCameraSync.ts            # Bidirectional camera mirror via canvas3d.didDraw
 
   stores/
-    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains (each residue has seqId + optional authSeqId), elements, meta (incl. iggSubtype + allotype + optional equivalentChains override), focusedChainId+Category, cameraSyncEnabled, autoOrientOnLoad (localStorage-persisted), clearAllSignal
+    structureStore.ts           # plugin, secondaryPlugin, loadTargetSlot, chains+secondaryChains (each residue has seqId + optional authSeqId), elements, meta (incl. iggSubtype + allotype + optional equivalentChains override), focusedChainId+Category, cameraSyncEnabled, autoOrientOnLoad + alignmentLabelMode (both localStorage-persisted), clearAllSignal
     selectionStore.ts           # selected/hovered residues, _lock mechanism
 
   lib/

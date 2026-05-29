@@ -14,6 +14,22 @@ function persistAutoOrient(enabled: boolean): void {
   try { window.localStorage.setItem(AUTO_ORIENT_KEY, enabled ? 'true' : 'false') } catch {}
 }
 
+/** Persist the Alignment-panel label mode. 'file' (default) shows the file
+ *  path; 'name' shows the entry's metadata `name` from index.json. */
+export type AlignmentLabelMode = 'file' | 'name'
+const ALIGN_LABEL_KEY = 'tarantino.alignmentLabelMode'
+function loadAlignmentLabelMode(): AlignmentLabelMode {
+  if (typeof window === 'undefined') return 'file'
+  try {
+    const v = window.localStorage.getItem(ALIGN_LABEL_KEY)
+    return v === 'name' ? 'name' : 'file'
+  } catch { return 'file' }
+}
+function persistAlignmentLabelMode(mode: AlignmentLabelMode): void {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(ALIGN_LABEL_KEY, mode) } catch {}
+}
+
 export interface ChainInfo {
   id: string
   entityId: string
@@ -91,6 +107,8 @@ interface StructureState {
    *  via PluginCommands.Camera.OrientAxes after the default preset is applied.
    *  Default OFF — many users prefer the structure's authored orientation. */
   autoOrientOnLoad: boolean
+  /** Alignment panel: show 'file' path or metadata `name` in the source-labels block. */
+  alignmentLabelMode: AlignmentLabelMode
   /** Monotonic counter. Increment to signal "clear all selections everywhere"
    *  (3D viewers + alignment panel etc.). Components watch via useEffect. */
   clearAllSignal: number
@@ -114,6 +132,7 @@ interface StructureState {
   setFocusedChain: (chainId: string | null, category?: string | null) => void
   setCameraSyncEnabled: (enabled: boolean) => void
   setAutoOrientOnLoad: (enabled: boolean) => void
+  setAlignmentLabelMode: (mode: AlignmentLabelMode) => void
   /** Bump clearAllSignal — components subscribed via useEffect will reset their state. */
   fireClearAll: () => void
   /** Bump libraryVersion — StructureLibrary re-fetches index.json. */
@@ -148,6 +167,7 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
   focusedCategory: null,
   cameraSyncEnabled: true,
   autoOrientOnLoad: loadPersistedAutoOrient(),
+  alignmentLabelMode: loadAlignmentLabelMode(),
   clearAllSignal: 0,
   libraryVersion: 0,
 
@@ -176,6 +196,10 @@ export const useStructureStore = create<StructureState>((set, get) => ({ // @dsp
   setAutoOrientOnLoad: (enabled) => {
     persistAutoOrient(enabled)
     set({ autoOrientOnLoad: enabled })
+  },
+  setAlignmentLabelMode: (mode) => {
+    persistAlignmentLabelMode(mode)
+    set({ alignmentLabelMode: mode })
   },
   fireClearAll: () => set(s => ({ clearAllSignal: s.clearAllSignal + 1 })),
   bumpLibraryVersion: () => set(s => ({ libraryVersion: s.libraryVersion + 1 })),

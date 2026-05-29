@@ -43,6 +43,13 @@ export function useCameraSync() {
     ) => {
       if (consumePendingOnSrc()) return        // This draw is our own echo — skip.
       if (!src.canvas3d || !dst.canvas3d) return
+      // Don't mirror FROM an empty viewer — its camera state is meaningless
+      // defaults (tiny radiusMax, origin target), and pushing those onto a
+      // viewer that DOES have a structure would freeze the destination at
+      // a useless zoom level. Common scenario: user opens structure on A
+      // while B is still empty; B's idle didDraw events would otherwise
+      // mirror its empty default state onto A.
+      if (src.managers.structure.hierarchy.current.structures.length === 0) return
       const srcSnap = src.canvas3d.camera.getSnapshot()
       setPendingOnDst(true)
       // 0ms duration: instant mirror, no animation flicker.
