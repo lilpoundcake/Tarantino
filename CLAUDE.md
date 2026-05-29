@@ -42,14 +42,14 @@ a dockable multi-panel workspace:
 - **Interactions**: computed H-bonds, ionic, cation-pi, pi-stacking, halogen,
   hydrophobic, metal coordination, disulfide, covalent
 - **DVBFixer**: form-driven UI for the DVBFixer CLI (split / renumber / model /
-  prepare / minimize / protonate / glycam), outputs registered as child entries
+  prepare / minimize / protonate / convert), outputs registered as child entries
 - **Antibody Engineer**: takes any antibody-containing structure (full / Fab /
   Fc), classifies its chains (HC / LC κ / LC λ, IgG1–4), maps EU- or
   Kabat-numbered mutations from the Mutations DB onto every chain in each
   equivalent-chain group, runs the appropriate multi-step DVBFixer pipeline
-  (`renumber → prepare --mutate → [glycam → minimize --no-solvent →
-  protonate → minimize --no-solvent → glycam --to-charmm]` for glycan
-  inputs, 5-step variant without glycam for non-glycan), and streams live
+  (`renumber → prepare --mutate → [convert → minimize --no-solvent →
+  protonate → minimize --no-solvent → convert --to-charmm]` for glycan
+  inputs, 5-step variant without convert for non-glycan), and streams live
   per-step progress to a `LinearProgress`. Dedup: same `(input, mutations,
   glycan, scheme)` combo skips re-running and loads the cached output.
 - **Mutations**: PostgreSQL-backed editable DataGrid (igg_subclass / chain /
@@ -83,12 +83,16 @@ viewer (primary or secondary) holds that chain.
 
 ### Panel System
 
-`flexlayout-react` `Layout` + `Model` in `App.tsx`. Default layout: Library +
-Info on the left; 3D Structure / Sequence / Elements / Interactions on the
-right. Every tabset has a "+" button (`onRenderTabSet`) that opens a MUI Menu
+`flexlayout-react` `Layout` + `Model` in `App.tsx`. Default layout (in the
+same tabset, the first tab is the active one):
+- Left column: Library, then (Info | **Settings**).
+- Right column (main viewer): (3D Structure | **DVBFixer**), with
+  (Sequence | **Alignment**) and (Elements | Interactions) tabsets below.
+
+Every tabset has a "+" button (`onRenderTabSet`) that opens a MUI Menu
 listing: 3D Structure, 3D Structure (B), Sequence, Elements, Interactions,
-Alignment, DVBFixer, Mutations, Library, Info. Sequence panels keep their own
-chain selection.
+Alignment, DVBFixer, Antibody Engineer, Mutations, Library, Info,
+Settings. Sequence panels keep their own chain selection.
 
 ### Data Flow
 
@@ -131,10 +135,37 @@ snapshot doesn't get mirrored to the other viewer mid-orientation.
 
 Toggled via the link icon in the AppBar (only shown when both viewers exist).
 Mechanism: subscribe to each plugin's `canvas3d.didDraw`, snapshot the camera,
-mirror to the other viewer if (a) the snapshot actually changed and (b) we
-aren't the source of that change (per-direction `applying` flags + last
-snapshot equality check). Mirror with `setState(snap, 0)` for instant zero-anim
+mirror with `dst.canvas3d.camera.setState(snap, 0)` for instant zero-anim
 mirroring.
+
+**Anti-feedback uses pending-draw flags, NOT snapshot equality**. When subA
+mirrors A → B, it sets `pendingFromAToB = true`. The next `B.didDraw` consumes
+the flag and skips its mirror back to A. Critical: value-based equality
+(`lastAppliedToB`) DOES NOT work during a focus animation — A's snap updates
+every frame, so by the time B's echo-draw fires `subB`, `lastAppliedToB` has
+already been overwritten by A's newer frame, the equality fails, and the echo
+back to A interrupts A's in-flight animation. The pending-flag pattern is
+value-independent and survives multi-frame animations.
+
+### Camera ownership: `manualReset: true`
+
+`MolstarViewer` post-init calls `PluginCommands.Canvas3D.SetSettings(plugin,
+{ settings: { camera: { manualReset: true } } })`. This tells Mol*'s
+`canvas3d.commitScene` to NEVER call `resolveCameraReset` on its own.
+Without it, every state-tree update that grows the visible bounding sphere
+(adding sticks, glycam representations, etc.) would queue an
+auto-reset, which fires on the NEXT draw and overwrites any in-flight
+`camera.focusSphere` animation — the user sees "camera tries to jump and
+snap back".
+
+Trade-off: with `manualReset: true`, Mol*'s built-in "fit camera to scene
+on first structure load" is also suppressed. We compensate in
+`MolstarViewer` post-load:
+- `autoOrientOnLoad === true`  → `PluginCommands.Camera.OrientAxes(plugin)`
+- `autoOrientOnLoad === false` → `plugin.managers.camera.reset(undefined, 0)`
+
+Both branches suppress camera sync during the fit so the other viewer
+doesn't mirror the fit motion.
 
 ### Structure Library (with hierarchy + starring)
 
@@ -156,10 +187,76 @@ Auto-detected entries preserve the filename's actual case
 rule applies to the `PUT /api/library/meta` and `POST /api/library/star`
 auto-promote fallbacks server-side.
 
-Entries can have a `parent` field pointing to another entry's `file`. The
-`StructureLibrary` component renders the result as an expandable tree
-(parent → child → grandchild). **Everything starts collapsed by default** —
-users explicitly open parents via the chevron icon. No auto-expand.
+Entries in `structures/index.json` are a discriminated union:
+- `kind: 'structure'` (default — missing `kind` implies structure) — has
+  `file`, `name`, optional `parent` (lineage), `command`, `starred`, etc.
+- `kind: 'folder'` — has `id` (`fld_*` or the synthetic `__root__`),
+  `name`, `children: string[]` (ordered list of entry ids — folder ids
+  OR structure file paths).
+
+**Two nesting dimensions** in the Library tree:
+1. **Folder containment** (user-controlled, drag-droppable). Each folder's
+   `children` array is the authoritative ordering of *top-level* entries
+   inside that folder. A synthetic `__root__` folder always exists; its
+   `children` is the library's top-level layout.
+2. **Lineage** (automatic, read-only by default). A structure with
+   `parent: 'X.pdb'` is rendered nested under X.pdb. Lineage children
+   CAN also be moved into folders by the user — when they are, the
+   frontend computes `placedInFolder` (union of every `folder.children`)
+   and suppresses default lineage rendering for any structure that's
+   explicitly placed, so it shows ONLY in the folder it was moved to.
+   `parent` is preserved as informative metadata regardless. DVBFixer
+   / Antibody Engineer pipelines keep writing `parent` as before.
+
+**Drag-drop** uses `@dnd-kit/core` + `@dnd-kit/sortable`. Every row
+(folders, top-level structures, AND lineage children rendered under
+their parent) is a `useSortable` item; each carries `data: { type:
+'folder' | 'structure' }`. Drop semantics handled in `handleDragEnd`:
+- Drop a STRUCTURE on a FOLDER → move INTO that folder (append).
+- Drop on any sibling entry → insert BEFORE that sibling in its
+  container. Lets you reorder folders alongside each other and
+  structures within a folder.
+- Cycle prevention: refuse to move a folder inside itself or any
+  descendant.
+Every drop fires `PATCH /api/library/move` then `bumpLibraryVersion()`.
+
+**Active-viewer chip (A / B) bubbles up to lineage roots**. The chip
+appears on the row whose `file` matches `fileName` AND on the lineage
+root that contains that file in its lineage tree. So when the user
+clicks a root with a starred descendant, the load redirects to the
+descendant but BOTH the root and the descendant show the active-viewer
+chip — the user sees a marker on the row they clicked. Walk is gated to
+lineage roots only (`!structure.parent`); intermediate lineage entries
+don't pick up the chip.
+
+**Backend folder routes** (in `server/api-plugin.ts`):
+- `POST /api/library/folder { name, parentFolderId? }` → creates folder,
+  appends to parent's `children` (or `__root__` if omitted).
+- `PATCH /api/library/folder/:id { name }` → rename.
+- `DELETE /api/library/folder/:id` → remove folder; promote its
+  `children` up into the parent at the folder's current position.
+- `PATCH /api/library/move { entryId, toFolderId?, beforeId? }` →
+  relocate / reorder. `toFolderId` defaults to `__root__`; omitting
+  `beforeId` appends to end. Refuses to move a folder into itself or a
+  descendant (cycle prevention).
+
+**Scanner migration** (`vite.config.ts:scanStructuresDir`):
+- Folder entries (no on-disk file) survive the `onDisk` prune.
+- The synthetic `__root__` folder is auto-created on first scan if
+  missing.
+- Any entry not currently placed in any folder's `children` array gets
+  appended to `__root__.children` (preserves legacy layouts on first
+  run, auto-adopts newly-dropped on-disk files).
+- Stale entry ids in `folder.children` are stripped (entry deleted or
+  file removed from disk).
+
+**Everything starts collapsed by default** except `__root__` itself
+(implicit). Folders use `FolderIcon` (closed) / `FolderOpenIcon`
+(expanded), tinted amber. Inline-rename on double-click on a folder
+name. Delete-folder icon button on the right; promotes children up.
+
+The `StructureLibrary` component renders the result as an expandable
+tree. Users explicitly open folders / lineage parents via the chevron.
 
 Starring: each row has a star icon.
 - `POST /api/library/star { file }` flips the `starred` flag in `index.json`.
@@ -217,6 +314,8 @@ our own tagged repr nodes.
 - `deleteCellsByTag(plugin, tag)` — `StateSelection.Generators.root.subtree().withTag(tag)` → delete.
 - `focusInterfaceForChain(plugin, chainId, category, radius=5)` — entity-type-aware contact MolScript (chain X residues within 5 Å of any non-self atom ∪ partner-side residues within 5 Å of chain X). Uses tag `tarantino-interface`, then `camera.focusSphere`. The `category` arg maps to a MolScript `entity.type` test so a polymer chain "A" and a ligand with chain id "A" are distinct selves.
 - `showSelectionSticks(plugin, residues)` / `clearSelectionSticks(plugin)` — tag `tarantino-selection`. Called by `useSequenceSync` and `AlignmentPanel`.
+- `showSurroundingsAndFocus(plugin, residues, radius=5)` / `clearSurroundings(plugin)` — tag `tarantino-focus-surr`. Builds `MS.struct.modifier.includeSurroundings({ target: residues, radius, as-whole-residues })`, renders the combined region as sticks, AND calls `camera.focusSphere` ONCE. Order: camera FIRST, then fire-and-forget sticks (so the state-tree commit can't pre-empt the camera request). Used by the Sequence panel's Zoom button and the Alignment panel's Focus button. The deterministic single camera move (combined with `manualReset: true` on the canvas3d) prevents the "tries to jump, snaps back" bug previously caused by `focus.setFromLoci` triggering its own auto-pan.
+- `buildResiduesLoci(plugin, residues)` — synchronously build a Loci from a residue list without any state-tree mutation. Use when you need the loci immediately (e.g. for `camera.focusLoci`) without round-tripping through `selection.getLoci` (which is async-lagged behind the most recent `lociSelects.select`).
 
 `src/lib/residue-color-theme.ts` registers `tarantino-residue-type`: carbons
 by residue class (hydrophobic green, positive blue, negative red, polar orange,
@@ -426,6 +525,12 @@ active structure. Failures leave the viewer untouched.
   'EU'|'Kabat' }`. Streams `data: <JSON>\n\n` events. See the dedicated
   Antibody Engineer architecture section above.
 - `POST /api/library/star { file }` — toggles `starred` flag in `index.json` (one starred per family).
+- `POST /api/library/folder { name, parentFolderId? }` — create a new folder
+  (appended to parent's children, or `__root__` if omitted).
+- `PATCH /api/library/folder/:id { name }` — rename folder.
+- `DELETE /api/library/folder/:id` — delete folder; children migrate up to parent.
+- `PATCH /api/library/move { entryId, toFolderId?, beforeId? }` — move / reorder
+  any entry (folder OR structure) by file path or folder id.
 - `PUT /api/library/meta { file, name?, organism?, method?, resolution?, description?, iggSubtype?, allotype?, equivalentChains? }` — persists
   per-entry metadata edits into `index.json`. Promotes auto-detected files to manual entries on
   demand. Only patches the whitelisted fields — other entry fields (`id`, `parent`, `starred`, etc.) are
@@ -672,7 +777,7 @@ src/
   components/
     MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes gated on autoOrientOnLoad)
     SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init, Structure/Sequence numbering toggle
-    StructureLibrary.tsx        # Tree of structures, starring, A/B slot toggle, hint chip (gated on depth+!starred only)
+    StructureLibrary.tsx        # Tree of folders + structures, drag-drop reorder + cross-folder move (@dnd-kit), starring, A/B slot toggle, descendant-starred hint chip
     StructureInfo.tsx           # Stats summary at top, metadata (Name + IgG Subtype + Allotype) + Notes, EquivalentChainsSection (auto-detect via NW + trimmed identity, manual override persisted in index.json)
     ElementsTable.tsx           # Tree, visibility toggles, row-click camera focus (sync-suppressed), "Show Interface"
     InteractionsPanel.tsx       # Computed contacts, focused-chain banner
@@ -703,9 +808,9 @@ src/
     residue-color-theme.ts      # Mol* ColorTheme: carbons by residue class, others CPK
 
 server/
-  api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/star, /api/library/meta, /api/antibody-engineer/run (SSE), /api/status. Exports runDvbfixer + getPg + writeSSEHeaders + sseSend for reuse.
+  api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/{star,meta,folder,move}, /api/antibody-engineer/run (SSE), /api/status. Exports runDvbfixer + getPg + writeSSEHeaders + sseSend for reuse.
   antibody-pipeline.ts          # Multi-step DVBFixer orchestrator: expandMutations, validateNoDuplicateTargets, pipelineSteps (glycan-7 vs no-glycan-5), engineerChecksum dedup, runEngineerPipeline (intermediate + final index.json entries, _engineer_failed/ rollback)
-  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/glycam. renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho
+  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/convert (was `glycam` in older DVBFixer). renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho. convert exposes --to-amber (default direction; PDB/CHARMM → GLYCAM + AMBER) + --to-charmm (mutually exclusive; GLYCAM/AMBER → CHARMM) + --no-roh.
 
 scripts/
   dev.mjs                       # Smart launcher: auto docker postgres → vite
@@ -715,5 +820,5 @@ scripts/
 structures/                     # Manifest (index.json with parent/starred/equivalentChains/mutationIds/_engineerChecksum), pdb files, dvb_<cmd>_<ts>/ outputs, _dvb_failed/ for single-command failures, _engineer_failed/ for Antibody Engineer pipeline failures
 mutations.json                  # Git-tracked backup of the postgres `mutations` table. Auto-written after every CRUD, auto-seeded on empty table.
 docker-compose.yml              # postgres:16-alpine, service `db`
-vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, strip orphan parents only when parent file is genuinely off-disk, preserve filename case, skip `.*`/`_*`)
+vite.config.ts                  # apiPlugin + serve-structures (recursive scan, prune stale, strip orphan parents only when parent file is genuinely off-disk, preserve filename case, synthesise __root__ folder, auto-adopt new files into __root__.children, prune stale folder-children refs, skip `.*`/`_*`)
 ```

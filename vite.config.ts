@@ -24,10 +24,16 @@ function walkPdbFiles(dir: string, baseDir: string, out: string[]) {
   }
 }
 
+/** Synthetic id of the virtual root folder. Its `children` array is the
+ *  authoritative ordering of top-level library entries (folders and
+ *  lineage-root structures). Always present after the first scan. */
+const ROOT_ID = '__root__'
+
 function scanStructuresDir(structuresDir: string) {
   if (!fs.existsSync(structuresDir)) return []
 
-  // Read manual index if exists (may contain entries with `parent` for hierarchy)
+  // Read manual index if exists (may contain entries with `parent` for
+  // lineage hierarchy, plus user-defined folders).
   const indexPath = path.join(structuresDir, 'index.json')
   let manual: any[] = []
   if (fs.existsSync(indexPath)) {
@@ -39,19 +45,18 @@ function scanStructuresDir(structuresDir: string) {
   walkPdbFiles(structuresDir, structuresDir, allFiles)
   const onDisk = new Set(allFiles)
 
-  // Drop manual entries whose file is missing from disk (user deleted it).
-  // Also strip orphan `parent` references that point to files no longer
-  // present ON DISK — these are leftovers from old star/swap bugs and
-  // break the family-tree walk in the library. NB: we check against
-  // `onDisk`, NOT against the subset of files that happen to be tracked
-  // manually in index.json — an auto-detected parent (a PDB the user
-  // dropped in without curating index.json) is still a valid parent for
-  // DVBFixer child entries. Auto-prune the index.json file so stale state
-  // doesn't accumulate.
-  let aliveManual = manual.filter((e: any) => onDisk.has(e.file))
+  // Drop manual STRUCTURE entries whose file is missing from disk.
+  // Folder entries (kind === 'folder') have no on-disk file and must
+  // always survive the prune.
+  let aliveManual = manual.filter((e: any) =>
+    e.kind === 'folder' || onDisk.has(e.file)
+  )
   let mutated = aliveManual.length !== manual.length
+
+  // Strip orphan `parent` references on STRUCTURES pointing to files
+  // no longer present ON DISK — leftovers from old star/swap bugs.
   aliveManual = aliveManual.map((e: any) => {
-    if (e.parent && !onDisk.has(e.parent)) {
+    if (e.kind !== 'folder' && e.parent && !onDisk.has(e.parent)) {
       mutated = true
       const { parent, ...rest } = e
       void parent
@@ -59,13 +64,11 @@ function scanStructuresDir(structuresDir: string) {
     }
     return e
   })
-  if (mutated) {
-    try { fs.writeFileSync(indexPath, JSON.stringify(aliveManual, null, 2)) } catch {}
-  }
 
-  const manualFiles = new Set(aliveManual.map((e: any) => e.file))
-
-  // Subfolder paths are kept relative (e.g. 'dvb_split_2024-01-01T12-00-00/4hhb_split.pdb').
+  // Auto-detect on-disk files that have no manual entry yet.
+  const manualFiles = new Set(
+    aliveManual.filter((e: any) => e.kind !== 'folder').map((e: any) => e.file)
+  )
   const autoEntries = allFiles
     .filter(f => !manualFiles.has(f))
     .map(f => {
@@ -73,9 +76,9 @@ function scanStructuresDir(structuresDir: string) {
       const base = path.basename(f).replace(/\.(pdb|cif|mmcif)$/i, '')
       return {
         id,
+        kind: 'structure',
         file: f,
-        // Preserve the filename's actual case — use the basename as-is.
-        // Was `base.toUpperCase()` which mangled e.g. mystructure.pdb → MYSTRUCTURE.
+        // Preserve the filename's actual case.
         name: base,
         organism: '',
         chains: 0,
@@ -86,7 +89,86 @@ function scanStructuresDir(structuresDir: string) {
       }
     })
 
-  return [...aliveManual, ...autoEntries]
+  // Merge manual + auto into one list, then ensure the __root__ folder
+  // exists and contains a valid ordering of every lineage-root entry.
+  let entries: any[] = [...aliveManual, ...autoEntries]
+
+  // Build a set of every known entry id (folders use `id`, structures
+  // use `file`). Every reference in folder.children must point here.
+  const allIds = new Set<string>()
+  for (const e of entries) {
+    if (e.kind === 'folder') allIds.add(e.id)
+    else allIds.add(e.file)
+  }
+
+  // Find or create the synthetic root folder.
+  let rootIdx = entries.findIndex(e => e.kind === 'folder' && e.id === ROOT_ID)
+  let root: any
+  if (rootIdx < 0) {
+    root = { id: ROOT_ID, kind: 'folder', name: '__root__', children: [] }
+    entries.push(root)
+    rootIdx = entries.length - 1
+    mutated = true
+  } else {
+    root = entries[rootIdx]
+    if (!Array.isArray(root.children)) { root.children = []; mutated = true }
+  }
+
+  // Prune stale refs from every folder's children: drop ids that no
+  // longer exist as entries. Lineage children (structures with `parent`)
+  // ARE allowed in folder.children — the frontend suppresses their
+  // default lineage rendering when they're explicitly placed.
+  // Also drop the same id appearing in MULTIPLE folder.children arrays
+  // — a structure belongs to at most one folder. Earlier-seen wins.
+  const seenInFolder = new Set<string>()
+  for (const e of entries) {
+    if (e.kind !== 'folder' || !Array.isArray(e.children)) continue
+    const filtered: string[] = []
+    for (const id of e.children) {
+      if (!allIds.has(id)) continue                          // stale ref
+      if (seenInFolder.has(id)) continue                     // dup across folders
+      seenInFolder.add(id)
+      filtered.push(id)
+    }
+    if (filtered.length !== e.children.length) {
+      e.children = filtered
+      mutated = true
+    }
+  }
+
+  // Set of every id that's already placed somewhere in folder.children.
+  const placed = new Set<string>()
+  for (const e of entries) {
+    if (e.kind === 'folder' && Array.isArray(e.children)) {
+      for (const id of e.children) placed.add(id)
+    }
+  }
+
+  // Any lineage-root entry (folder OR structure without a parent) that
+  // isn't placed in any folder lands in __root__.children. This both
+  // initialises the layout on first run AND auto-adopts newly auto-
+  // detected files dropped into structures/.
+  for (const e of entries) {
+    let id: string
+    if (e.kind === 'folder') {
+      if (e.id === ROOT_ID) continue       // root never references itself
+      id = e.id
+    } else {
+      if (e.parent) continue               // lineage child, not a folder member
+      id = e.file
+    }
+    if (!placed.has(id)) {
+      root.children.push(id)
+      placed.add(id)
+      mutated = true
+    }
+  }
+
+  if (mutated) {
+    try { fs.writeFileSync(indexPath, JSON.stringify(entries, null, 2)) } catch {}
+  }
+
+  return entries
 }
 
 export default defineConfig({

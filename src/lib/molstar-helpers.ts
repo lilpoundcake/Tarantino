@@ -68,6 +68,22 @@ function toLoci(expression: ReturnType<typeof buildResidueExpression>, structure
   return StructureSelection.toLociWithSourceUnits(selection)
 }
 
+/**
+ * Synchronously build a Mol* Loci object for the given residue list against
+ * the plugin's primary structure. Returns null if no structure is loaded.
+ * Use this when you need the loci RIGHT NOW (e.g. for `camera.focusLoci`)
+ * instead of round-tripping through `selection.getLoci` — the latter reads
+ * from the InteractivityManager's selection state, which is async-commit
+ * from the last `lociSelects.select` call and may be stale on the next
+ * tick.
+ */
+export function buildResiduesLoci(plugin: PluginUIContext, residues: ResidueId[]) {
+  if (residues.length === 0) return null
+  const structure = getFirstStructure(plugin)
+  if (!structure) return null
+  return toLoci(buildResidueExpression(residues), structure)
+}
+
 export function selectResiduesInViewer(
   plugin: PluginUIContext,
   residues: ResidueId[],
@@ -525,6 +541,79 @@ export async function showSelectionSticks(
 /** Delete the sequence-selection sticks. */
 export async function clearSelectionSticks(plugin: PluginUIContext) {
   await deleteCellsByTag(plugin, SELECTION_TAG)
+}
+
+const SURROUNDINGS_TAG = 'tarantino-focus-surr'
+
+/**
+ * Show selected residues + their neighbors within `radius` Å as solid
+ * ball-and-stick AND zoom the camera to fit the whole region. This is the
+ * replacement for `focus.setFromLoci` in user-initiated "zoom to selection"
+ * gestures (Sequence panel's Zoom button, Alignment panel's Focus button).
+ *
+ * Why not `focus.setFromLoci`? It runs Mol*'s built-in `FocusLoci` behavior
+ * which independently animates the camera at the same time we want to. The
+ * two animations race and produce a visible "jump" on the first click.
+ * Here we use our own tagged repr (so the visual is identical) and one
+ * explicit `camera.focusSphere` call — single, deterministic camera move.
+ *
+ * Returns the bounding sphere of the loci (selection + surroundings) so
+ * callers can chain other camera ops if needed.
+ */
+export async function showSurroundingsAndFocus(
+  plugin: PluginUIContext,
+  residues: ResidueId[],
+  radius: number = 5,
+) {
+  if (residues.length === 0) {
+    await deleteCellsByTag(plugin, SURROUNDINGS_TAG)
+    return
+  }
+
+  const structure = getFirstStructure(plugin)
+  if (!structure) return
+
+  // Build MolScript: (selected residues) ∪ (residues within `radius` Å of them)
+  // as whole residues so we don't slice across backbones.
+  const selectionExpr = buildResidueExpression(residues)
+  const surroundingsExpr = MS.struct.modifier.includeSurroundings({
+    0: selectionExpr,
+    radius,
+    'as-whole-residues': true,
+  })
+  const loci = toLoci(surroundingsExpr, structure)
+  if (Loci.isEmpty(loci)) return
+
+  // Defensive: re-assert manualReset right before focusing. Some Mol*
+  // call paths (re-initializing canvas, structure replacement, etc.)
+  // can flip this back to false. With manualReset=true, commitScene
+  // will NOT auto-reset the camera as new geometry appears — our
+  // focusSphere is the sole authority over the camera target.
+  if (plugin.canvas3d) {
+    const cam = plugin.canvas3d.props.camera
+    if (!cam.manualReset) {
+      plugin.canvas3d.setProps({ camera: { ...cam, manualReset: true } })
+    }
+  }
+
+  // Move the camera FIRST, before any state-tree mutation. This way the
+  // focusSphere request is the only camera reset queued; the subsequent
+  // state-tree update for sticks runs commitScene with manualReset=true
+  // so it won't override our focus target.
+  const sphere = Loci.getBoundingSphere(loci)
+  if (sphere) plugin.managers.camera.focusSphere(sphere, { durationMs: 400 })
+
+  // Render the combined region as solid sticks under our own tag. Fire
+  // and forget — the camera animation already kicked off above, and
+  // manualReset=true on canvas3d.camera prevents commitScene from
+  // hijacking the camera as the new geometry appears.
+  showSticksForLoci(plugin, loci as StructureElement.Loci, SURROUNDINGS_TAG, 'Selection + surroundings')
+    .catch(err => console.warn('[showSurroundingsAndFocus] sticks failed:', err))
+}
+
+/** Clear the "selection + surroundings" sticks (e.g. on empty-3D-click / Esc). */
+export async function clearSurroundings(plugin: PluginUIContext) {
+  await deleteCellsByTag(plugin, SURROUNDINGS_TAG)
 }
 
 /**

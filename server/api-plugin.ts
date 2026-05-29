@@ -545,6 +545,177 @@ export function apiPlugin(): Plugin {
         }
       })
 
+      // ── Library folders + reordering ──────────────────────────────────
+      // Folder entries live in structures/index.json alongside structure
+      // entries; the discriminator is `kind: 'folder' | 'structure'`. A
+      // synthetic '__root__' folder always exists and its `children` array
+      // is the ordered top-level layout. See vite.config.ts:scanStructuresDir
+      // for the migration / synthesis logic.
+      const ROOT_ID = '__root__'
+      const readIndex = (): any[] => {
+        const indexPath = path.join(structuresDir, 'index.json')
+        if (!fs.existsSync(indexPath)) return []
+        try { return JSON.parse(fs.readFileSync(indexPath, 'utf-8')) } catch { return [] }
+      }
+      const writeIndex = (entries: any[]) => {
+        const indexPath = path.join(structuresDir, 'index.json')
+        fs.writeFileSync(indexPath, JSON.stringify(entries, null, 2))
+      }
+      const findRoot = (entries: any[]) => entries.find(e => e.kind === 'folder' && e.id === ROOT_ID)
+      const entryIdOf = (e: any): string => e.kind === 'folder' ? e.id : e.file
+      const findFolder = (entries: any[], id: string) =>
+        entries.find(e => e.kind === 'folder' && e.id === id)
+      const folderContainingId = (entries: any[], id: string) => {
+        for (const e of entries) {
+          if (e.kind === 'folder' && Array.isArray(e.children) && e.children.includes(id)) return e
+        }
+        return null
+      }
+      const bumpVersion = () => {
+        // No server-side equivalent of bumpLibraryVersion; the frontend
+        // re-fetches index.json after each successful mutation via its
+        // own bumpLibraryVersion() call.
+      }
+      void bumpVersion // reserved
+
+      // POST   /api/library/folder    { name, parentFolderId? } → { folder }
+      // PATCH  /api/library/folder/:id { name }                 → { folder }
+      // DELETE /api/library/folder/:id                          → 204
+      server.middlewares.use('/api/library/folder', async (req, res, next) => {
+        const method = req.method
+        if (method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') return next()
+        try {
+          const url = (req.url || '').split('?')[0]
+          const idMatch = url.match(/^\/([^/]+)$/)
+          const folderId = idMatch ? decodeURIComponent(idMatch[1]) : null
+
+          const body = method === 'DELETE' ? {} : JSON.parse(await readBody(req) || '{}')
+          const entries = readIndex()
+          let root = findRoot(entries)
+          if (!root) {
+            root = { id: ROOT_ID, kind: 'folder', name: '__root__', children: [] }
+            entries.push(root)
+          }
+
+          if (method === 'POST') {
+            const name = (body.name ?? '').toString().trim() || 'New folder'
+            const parentFolderId = body.parentFolderId ?? ROOT_ID
+            const parent = findFolder(entries, parentFolderId) ?? root
+            if (!Array.isArray(parent.children)) parent.children = []
+            const id = `fld_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+            const folder = { id, kind: 'folder', name, children: [] }
+            entries.push(folder)
+            parent.children.push(id)
+            writeIndex(entries)
+            return sendJson(res, 201, { folder })
+          }
+
+          if (!folderId) return sendJson(res, 400, { error: 'folder id required in path' })
+          if (folderId === ROOT_ID) return sendJson(res, 400, { error: '__root__ cannot be modified directly' })
+          const folder = findFolder(entries, folderId)
+          if (!folder) return sendJson(res, 404, { error: `folder not found: ${folderId}` })
+
+          if (method === 'PATCH') {
+            if (typeof body.name === 'string') folder.name = body.name.trim() || folder.name
+            writeIndex(entries)
+            return sendJson(res, 200, { folder })
+          }
+
+          if (method === 'DELETE') {
+            // Promote folder's children up into its parent at the
+            // folder's current position, preserving order.
+            const container = folderContainingId(entries, folderId) ?? root
+            const containerChildren: string[] = container.children
+            const pos = containerChildren.indexOf(folderId)
+            const myChildren: string[] = folder.children ?? []
+            container.children = [
+              ...containerChildren.slice(0, pos),
+              ...myChildren,
+              ...containerChildren.slice(pos + 1),
+            ]
+            // Remove the folder entry itself.
+            const idx = entries.indexOf(folder)
+            if (idx >= 0) entries.splice(idx, 1)
+            writeIndex(entries)
+            res.statusCode = 204
+            return res.end()
+          }
+        } catch (err: any) {
+          sendJson(res, 500, { error: err.message ?? String(err) })
+        }
+      })
+
+      // PATCH /api/library/move { entryId, toFolderId?, beforeId? } → { ok }
+      // Move/reorder an entry. entryId is the folder id or structure file
+      // path. toFolderId defaults to __root__. beforeId defaults to "end".
+      server.middlewares.use('/api/library/move', async (req, res, next) => {
+        if (req.method !== 'PATCH' && req.method !== 'POST') return next()
+        try {
+          const body = JSON.parse(await readBody(req) || '{}') as {
+            entryId?: string
+            toFolderId?: string
+            beforeId?: string | null
+          }
+          if (!body.entryId) return sendJson(res, 400, { error: 'entryId required' })
+          const entries = readIndex()
+          let root = findRoot(entries)
+          if (!root) {
+            root = { id: ROOT_ID, kind: 'folder', name: '__root__', children: [] }
+            entries.push(root)
+          }
+          // Validate the moved entry exists.
+          const moved = entries.find(e => entryIdOf(e) === body.entryId)
+          if (!moved) return sendJson(res, 404, { error: `entry not found: ${body.entryId}` })
+          // Refuse to move __root__ or move an entry into itself / descendant.
+          if (body.entryId === ROOT_ID) return sendJson(res, 400, { error: 'cannot move __root__' })
+          // Lineage children (structures with `.parent`) ARE allowed to be
+          // moved. They keep their `parent` field as informative metadata,
+          // and the frontend suppresses default lineage rendering for any
+          // structure that's explicitly placed in some folder.children, so
+          // there's no duplicate display.
+
+          const dest = findFolder(entries, body.toFolderId ?? ROOT_ID)
+          if (!dest) return sendJson(res, 404, { error: `destination folder not found: ${body.toFolderId}` })
+          if (!Array.isArray(dest.children)) dest.children = []
+
+          // If moving a folder, ensure we're not putting it inside itself
+          // or one of its descendants (would create a cycle).
+          if (moved.kind === 'folder') {
+            const isDescendant = (folder: any, candidateId: string): boolean => {
+              if (!folder || !Array.isArray(folder.children)) return false
+              for (const childId of folder.children) {
+                if (childId === candidateId) return true
+                const child = findFolder(entries, childId)
+                if (child && isDescendant(child, candidateId)) return true
+              }
+              return false
+            }
+            if (body.toFolderId === moved.id || isDescendant(moved, dest.id)) {
+              return sendJson(res, 400, { error: 'cannot move a folder inside itself' })
+            }
+          }
+
+          // Remove the entry from its current parent's children list.
+          const oldParent = folderContainingId(entries, body.entryId)
+          if (oldParent) {
+            oldParent.children = oldParent.children.filter((id: string) => id !== body.entryId)
+          }
+
+          // Insert into destination at the requested position.
+          let insertAt = dest.children.length
+          if (body.beforeId) {
+            const at = dest.children.indexOf(body.beforeId)
+            if (at >= 0) insertAt = at
+          }
+          dest.children.splice(insertAt, 0, body.entryId)
+
+          writeIndex(entries)
+          sendJson(res, 200, { ok: true })
+        } catch (err: any) {
+          sendJson(res, 500, { error: err.message ?? String(err) })
+        }
+      })
+
       // ── Antibody Engineer pipeline (SSE) ─────────────────────────────
       // POST /api/antibody-engineer/run streams progress for the
       // multi-step DVBFixer pipeline that applies one or more selected

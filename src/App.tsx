@@ -90,6 +90,7 @@ const layoutJson: IJsonModel = {
             weight: 45,
             children: [
               { type: 'tab', name: 'Info', component: 'info' },
+              { type: 'tab', name: 'Settings', component: 'settings' },
             ],
           },
         ],
@@ -103,6 +104,7 @@ const layoutJson: IJsonModel = {
             weight: 65,
             children: [
               { type: 'tab', name: '3D Structure', component: 'viewer' },
+              { type: 'tab', name: 'DVBFixer', component: 'dvbfixer' },
             ],
           },
           {
@@ -114,6 +116,7 @@ const layoutJson: IJsonModel = {
                 weight: 50,
                 children: [
                   { type: 'tab', name: 'Sequence', component: 'sequence' },
+                  { type: 'tab', name: 'Alignment', component: 'alignment' },
                 ],
               },
               {
@@ -163,6 +166,7 @@ function App() { // @dsp obj-a1000002
           import('./lib/molstar-helpers').then(m => {
             m.clearInterfaceFocus(plugin).catch(() => {})
             m.clearSelectionSticks(plugin).catch(() => {})
+            m.clearSurroundings(plugin).catch(() => {})
           }).catch(() => {})
           useStructureStore.getState().setFocusedChain(null)
         }

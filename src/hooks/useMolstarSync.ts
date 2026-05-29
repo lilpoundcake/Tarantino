@@ -3,7 +3,7 @@ import { StructureElement } from 'molstar/lib/mol-model/structure'
 import { StructureProperties as SP } from 'molstar/lib/mol-model/structure'
 import { OrderedSet } from 'molstar/lib/mol-data/int'
 import { Loci } from 'molstar/lib/mol-model/loci'
-import { clearInterfaceFocus, clearSelectionSticks } from '../lib/molstar-helpers'
+import { clearInterfaceFocus, clearSelectionSticks, clearSurroundings } from '../lib/molstar-helpers'
 import { useStructureStore } from '../stores/structureStore'
 import { useSelectionStore, type ResidueId } from '../stores/selectionStore'
 import type { InteractivityManager } from 'molstar/lib/mol-plugin-state/manager/interactivity'
@@ -17,6 +17,7 @@ function clearPlugin3DState(plugin: PluginUIContext) {
   plugin.managers.structure.focus.clear()
   clearInterfaceFocus(plugin).catch(() => {})
   clearSelectionSticks(plugin).catch(() => {})
+  clearSurroundings(plugin).catch(() => {})
 }
 
 /**

@@ -143,12 +143,13 @@ export const COMMANDS: CommandDef[] = [
     ],
   },
   {
-    name: 'glycam',
-    label: 'Glycam',
-    description: 'Convert PDB glycan structures (BGC, GAL, NAG, …) to GLYCAM 3-character codes encoding linkage/sugar/anomer. Detects glycosidic bonds from CONECT or distance and renames residues/atoms accordingly.',
+    name: 'convert',
+    label: 'Convert',
+    description: 'Convert structure naming between PDB/AMBER/GLYCAM and CHARMM conventions. Default (--to-amber) converts PDB/CHARMM-named input to GLYCAM sugar codes + AMBER protonation variants (HID/HIE/HIP, ASH/GLH, LYN, CYX/CYM) consumable by prepare / minimize / protonate / top --acpype. With --to-charmm, the reverse: GLYCAM/AMBER → CHARMM (BGLCNA/BMAN/…, HSD/HSE/HSP/ASPP/GLUP/LSN); glycoprotein NLN/OLS/OLT revert to ASN/SER/THR and ROH/OME caps are dropped. Both directions are idempotent.',
     flags: [
-      { flag: '--no-roh', label: 'Skip ROH cap at reducing end', type: 'bool' },
-      { flag: '--to-charmm', label: 'Convert to CHARMM nomenclature', type: 'bool' },
+      { flag: '--to-amber', label: 'Direction: → AMBER + GLYCAM (default)', type: 'bool', help: 'Convert PDB/CHARMM → GLYCAM sugars + AMBER protonation variants. Mutually exclusive with --to-charmm.' },
+      { flag: '--to-charmm', label: 'Direction: → CHARMM', type: 'bool', help: 'Convert GLYCAM/AMBER → CHARMM-compatible naming. Drops ROH/OME caps; NLN/OLS/OLT revert to ASN/SER/THR. Mutually exclusive with --to-amber.' },
+      { flag: '--no-roh', label: 'Skip ROH cap at reducing end', type: 'bool', help: 'Suppress ROH/reducing-end cap addition. Applies only to the --to-amber direction.' },
       { flag: '--verbose', label: 'Verbose output', type: 'bool', default: true },
     ],
   },

@@ -10,7 +10,7 @@ import ClearIcon from '@mui/icons-material/Deselect'
 import ZoomInIcon from '@mui/icons-material/CenterFocusStrong'
 import { useStructureStore } from '../stores/structureStore'
 import { useSelectionStore } from '../stores/selectionStore'
-import { selectResiduesInViewer, focusResiduesInViewer } from '../lib/molstar-helpers'
+import { selectResiduesInViewer, showSurroundingsAndFocus } from '../lib/molstar-helpers'
 import { threeToOne, residueClass } from '../lib/residue-codes'
 import { ChainSelector } from './ChainSelector'
 
@@ -95,25 +95,19 @@ export function SequenceViewer({ initialChainId }: { initialChainId?: string } =
   const handleZoom = useCallback(() => {
     if (!plugin || selectedResidues.size === 0) return
     const residues = Array.from(selectedResidues.values())
-    // Show as sticks + zoom
     selectResiduesInViewer(plugin, residues, 'select')
-    focusResiduesInViewer(plugin, residues)
     // Zoom camera on the PRIMARY viewer only. If the secondary viewer is
     // open and camera sync is on, mirroring would push the primary camera's
-    // residue-level zoom onto the secondary viewer (which contains a
-    // different structure — the zoomed coordinates make no sense there).
-    // Temporarily suppress sync, do the focus, then restore.
+    // residue-level zoom onto the secondary viewer (different structure).
     const storeState = useStructureStore.getState()
     const wasSyncEnabled = storeState.cameraSyncEnabled
     const hasSecondary = !!storeState.secondaryPlugin
     if (wasSyncEnabled && hasSecondary) storeState.setCameraSyncEnabled(false)
 
-    const loci = plugin.managers.structure.selection.getLoci(
-      plugin.managers.structure.hierarchy.current.structures[0]?.cell.obj?.data as any
-    )
-    if (loci) {
-      plugin.managers.camera.focusLoci(loci)
-    }
+    // Show selection + 5Å surroundings as sticks AND focus the camera in
+    // a single deterministic call (no race with Mol*'s built-in focus
+    // auto-pan, which caused the first-click jump).
+    showSurroundingsAndFocus(plugin, residues)
 
     if (wasSyncEnabled && hasSecondary) {
       // Restore sync after the focus animation settles

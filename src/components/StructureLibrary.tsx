@@ -10,69 +10,87 @@ import IconButton from '@mui/material/IconButton'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Tooltip from '@mui/material/Tooltip'
+import TextField from '@mui/material/TextField'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import FolderIcon from '@mui/icons-material/Folder'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
+import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  useSortable,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  SortableContext,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useStructureStore, type ViewerSlot } from '../stores/structureStore'
 import { useSelectionStore } from '../stores/selectionStore'
 
+/* ────────────────────────────────────────────────────────────────────────
+ * Types
+ * ──────────────────────────────────────────────────────────────────────── */
+
 interface StructureEntry {
+  kind?: 'structure'
   id: string
   file: string
   name: string
-  organism: string
-  chains: number
-  residues: number
-  description: string
-  /** When set, this entry is a child of the entry whose `file` matches. */
+  organism?: string
+  chains?: number
+  residues?: number
+  description?: string
+  /** Lineage parent (e.g. DVBFixer output's input). Read-only nesting. */
   parent?: string
-  /** DVBFixer command that produced this child (set on outputs). */
+  /** DVBFixer command that produced this child. */
   command?: string
-  /** User-marked root. Visual indicator only — re-rooting is persisted as parent rewrites. */
   starred?: boolean
 }
 
+interface FolderEntry {
+  kind: 'folder'
+  id: string
+  name: string
+  /** Ordered list of entry ids (folder ids OR structure file paths). */
+  children: string[]
+}
+
+type AnyEntry = StructureEntry | FolderEntry
+
+const ROOT_ID = '__root__'
+
+function isFolder(e: AnyEntry): e is FolderEntry {
+  return e.kind === 'folder'
+}
+function entryIdOf(e: AnyEntry): string {
+  return isFolder(e) ? e.id : e.file
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * StructureLibrary
+ * ──────────────────────────────────────────────────────────────────────── */
+
 export function StructureLibrary(_props: { onClose?: () => void }) {
-  const [entries, setEntries] = useState<StructureEntry[]>([])
+  const [entries, setEntries] = useState<AnyEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingId, setLoadingId] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-
-  // Build parent → children map. Roots are entries without a parent that
-  // matches an existing entry's `file`. Orphans (parent set but parent file
-  // missing) are treated as roots too so they're not hidden.
-  const tree = useMemo(() => {
-    const fileSet = new Set(entries.map(e => e.file))
-    const byParent = new Map<string, StructureEntry[]>()
-    const roots: StructureEntry[] = []
-    for (const e of entries) {
-      if (e.parent && fileSet.has(e.parent)) {
-        const arr = byParent.get(e.parent) ?? []
-        arr.push(e)
-        byParent.set(e.parent, arr)
-      } else {
-        roots.push(e)
-      }
-    }
-    return { roots, byParent }
-  }, [entries])
-
-  // Everything starts collapsed. Users explicitly open parents via the
-  // chevron — we DO NOT auto-expand when new children appear (the chevron
-  // changes appearance to indicate children, which is enough hint).
-
-  const toggleExpanded = useCallback((file: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev)
-      if (next.has(file)) next.delete(file)
-      else next.add(file)
-      return next
-    })
-  }, [])
+  const [expanded, setExpanded] = useState<Set<string>>(new Set([ROOT_ID]))
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
 
   const plugin = useStructureStore((s) => s.plugin)
   const secondaryPlugin = useStructureStore((s) => s.secondaryPlugin)
@@ -86,7 +104,10 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
   const fileName = useStructureStore((s) => s.fileName)
   const secondaryFileName = useStructureStore((s) => s.secondaryFileName)
   const clearSelection = useSelectionStore((s) => s.clearSelection)
+  const bumpLibraryVersion = useStructureStore((s) => s.bumpLibraryVersion)
+  const libraryVersion = useStructureStore((s) => s.libraryVersion)
 
+  /* ── Fetch ─────────────────────────────────────────────────────────── */
   const fetchIndex = useCallback(async () => {
     setLoading(true)
     try {
@@ -99,60 +120,72 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
       setLoading(false)
     }
   }, [])
-
-  // Re-fetch on mount AND whenever something bumps libraryVersion
-  // (meta edit, star toggle, DVBFixer run, file deletion, etc).
-  const libraryVersion = useStructureStore((s) => s.libraryVersion)
   useEffect(() => { fetchIndex() }, [fetchIndex, libraryVersion])
 
-  // Find a starred descendant of `entry`. If found, that's what we load
-  // when the user clicks `entry` (the family root). DFS through children.
-  const findStarredInSubtree = useCallback((root: StructureEntry): StructureEntry | null => {
-    const byParent = new Map<string, StructureEntry[]>()
+  /* ── Index ─────────────────────────────────────────────────────────── */
+  // byId: id → entry
+  // lineage: parentFile → child structures (default auto-nesting)
+  // placedInFolder: ids that appear inside SOME folder.children — they
+  // render at that explicit location and are SUPPRESSED from default
+  // lineage nesting (otherwise they'd appear twice).
+  const { byId, lineage, root, placedInFolder } = useMemo(() => {
+    const map = new Map<string, AnyEntry>()
+    const lin = new Map<string, StructureEntry[]>()
+    const placed = new Set<string>()
+    let r: FolderEntry | null = null
     for (const e of entries) {
-      if (e.parent) {
-        const arr = byParent.get(e.parent) ?? []
+      map.set(entryIdOf(e), e)
+      if (isFolder(e)) {
+        if (e.id === ROOT_ID) r = e
+        for (const childId of e.children ?? []) placed.add(childId)
+      } else if (e.parent) {
+        const arr = lin.get(e.parent) ?? []
         arr.push(e)
-        byParent.set(e.parent, arr)
+        lin.set(e.parent, arr)
       }
     }
-    const stack: StructureEntry[] = [root]
-    const seen = new Set<string>([root.file])
+    return { byId: map, lineage: lin, root: r, placedInFolder: placed }
+  }, [entries])
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  /* ── Load a structure into the active viewer slot ──────────────────── */
+  const findStarredInLineage = useCallback((rootStruct: StructureEntry): StructureEntry | null => {
+    const stack: StructureEntry[] = [rootStruct]
+    const seen = new Set<string>([rootStruct.file])
     while (stack.length > 0) {
       const cur = stack.pop()!
-      if (cur.starred && cur !== root) return cur
-      for (const child of byParent.get(cur.file) ?? []) {
-        if (!seen.has(child.file)) {
-          seen.add(child.file)
-          stack.push(child)
-        }
+      if (cur.starred && cur !== rootStruct) return cur
+      for (const child of lineage.get(cur.file) ?? []) {
+        if (!seen.has(child.file)) { seen.add(child.file); stack.push(child) }
       }
     }
     return null
-  }, [entries])
+  }, [lineage])
 
   const loadStructureRaw = useCallback(async (entry: StructureEntry) => {
     const targetPlugin = loadTargetSlot === 'secondary' ? secondaryPlugin : plugin
     if (!targetPlugin) {
-      setStoreError(
-        loadTargetSlot === 'secondary'
-          ? 'Open a "3D Structure (B)" tab first'
-          : 'Open a "3D Structure" tab first'
-      )
+      setStoreError(loadTargetSlot === 'secondary'
+        ? 'Open a "3D Structure (B)" tab first'
+        : 'Open a "3D Structure" tab first')
       return
     }
     setLoadingId(entry.id)
     setStoreLoading(true)
     setStoreError(null)
-    // Only clear sequence-panel selection when loading into primary
     if (loadTargetSlot === 'primary') clearSelection()
-
     try {
       const res = await fetch(`/structures/${entry.file}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const text = await res.text()
       const format = entry.file.endsWith('.cif') || entry.file.endsWith('.mmcif') ? 'mmcif' : 'pdb'
-
       await targetPlugin.clear()
       const data = await targetPlugin.builders.data.rawData({ data: text, label: entry.file })
       const trajectory = await targetPlugin.builders.structure.parseTrajectory(data, format)
@@ -161,9 +194,6 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
         setSecondaryFileName(entry.file)
       } else {
         setFileName(entry.file)
-        // Populate the Info-panel meta from the loaded entry. Only the
-        // PRIMARY viewer drives the meta panel — the secondary is for
-        // visual comparison and doesn't own the metadata UI.
         setMeta({
           name: entry.name ?? '',
           organism: (entry as any).organism ?? '',
@@ -172,8 +202,6 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
           description: entry.description ?? '',
           iggSubtype: (entry as any).iggSubtype ?? '',
           allotype: (entry as any).allotype ?? '',
-          // Restore manual equivalent-chain grouping if the entry has one
-          // persisted. Undefined → Info panel falls back to auto-detection.
           equivalentChains: (entry as any).equivalentChains,
         })
       }
@@ -186,18 +214,15 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
   }, [plugin, secondaryPlugin, loadTargetSlot, setFileName, setSecondaryFileName, setMeta, setStoreLoading, setStoreError, clearSelection])
 
   const loadStructure = useCallback(async (entry: StructureEntry) => {
-    // If clicking a family root and a descendant is starred, load THAT instead.
+    // If clicking a lineage root with a starred descendant, load the descendant instead.
     if (!entry.parent && !entry.starred) {
-      const starredDescendant = findStarredInSubtree(entry)
-      if (starredDescendant) {
-        return loadStructureRaw(starredDescendant)
-      }
+      const starred = findStarredInLineage(entry)
+      if (starred) return loadStructureRaw(starred)
     }
     return loadStructureRaw(entry)
-  }, [findStarredInSubtree, loadStructureRaw])
+  }, [findStarredInLineage, loadStructureRaw])
 
-  const bumpLibraryVersion = useStructureStore((s) => s.bumpLibraryVersion)
-
+  /* ── Star toggle ───────────────────────────────────────────────────── */
   const handleStar = useCallback(async (file: string) => {
     try {
       const res = await fetch('/api/library/star', {
@@ -209,13 +234,109 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `HTTP ${res.status}`)
       }
-      // Triggers re-fetch via the libraryVersion useEffect below
       bumpLibraryVersion()
     } catch (err) {
       console.warn('[library] star failed:', err)
     }
   }, [bumpLibraryVersion])
 
+  /* ── Folder operations ─────────────────────────────────────────────── */
+  const createFolder = useCallback(async () => {
+    const name = window.prompt('New folder name:', 'New folder')
+    if (!name) return
+    try {
+      const res = await fetch('/api/library/folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      bumpLibraryVersion()
+    } catch (err) {
+      console.warn('[library] createFolder failed:', err)
+    }
+  }, [bumpLibraryVersion])
+
+  const renameFolder = useCallback(async (id: string, name: string) => {
+    try {
+      const res = await fetch(`/api/library/folder/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      bumpLibraryVersion()
+    } catch (err) {
+      console.warn('[library] renameFolder failed:', err)
+    }
+  }, [bumpLibraryVersion])
+
+  const deleteFolder = useCallback(async (id: string) => {
+    if (!window.confirm('Delete this folder? Children move up to the parent folder.')) return
+    try {
+      const res = await fetch(`/api/library/folder/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok && res.status !== 204) throw new Error(`HTTP ${res.status}`)
+      bumpLibraryVersion()
+    } catch (err) {
+      console.warn('[library] deleteFolder failed:', err)
+    }
+  }, [bumpLibraryVersion])
+
+  /* ── Move / reorder ────────────────────────────────────────────────── */
+  const apiMove = useCallback(async (entryId: string, toFolderId: string, beforeId?: string | null) => {
+    try {
+      const res = await fetch('/api/library/move', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entryId, toFolderId, beforeId: beforeId ?? null }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      bumpLibraryVersion()
+    } catch (err) {
+      console.warn('[library] move failed:', err)
+    }
+  }, [bumpLibraryVersion])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const folderContainingId = useCallback((id: string): FolderEntry | null => {
+    for (const e of entries) {
+      if (isFolder(e) && e.children.includes(id)) return e
+    }
+    return null
+  }, [entries])
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over) return
+    const activeId = String(active.id)
+    const overId = String(over.id)
+    if (activeId === overId) return
+
+    // The sortable item's data tells us whether `over` is a folder or a
+    // structure (set via `useSortable({ id, data: { type } })`).
+    const overType = (over.data?.current as any)?.type as 'folder' | 'structure' | undefined
+    const activeType = (active.data?.current as any)?.type as 'folder' | 'structure' | undefined
+
+    // Drop a STRUCTURE on a FOLDER → move the structure INTO that folder
+    // (appended at end). This is the "put this in the folder" gesture.
+    if (overType === 'folder' && activeType === 'structure') {
+      apiMove(activeId, overId)
+      return
+    }
+
+    // Otherwise (structure-on-structure, folder-on-folder, folder-on-structure)
+    // → insert active before over in over's container folder. Lets the user
+    // reorder folders alongside each other and structures within a folder.
+    const destFolder = folderContainingId(overId)
+    if (!destFolder) return
+    apiMove(activeId, destFolder.id, overId)
+  }, [apiMove, folderContainingId])
+
+  /* ── Render ────────────────────────────────────────────────────────── */
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -223,8 +344,7 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
       </Box>
     )
   }
-
-  if (entries.length === 0) {
+  if (!root || (entries.length === 0)) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 1, px: 2 }}>
         <FolderOpenIcon sx={{ fontSize: 32, color: 'text.secondary' }} />
@@ -262,19 +382,27 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
               </ToggleButtonGroup>
             </Tooltip>
           )}
-          <IconButton size="small" onClick={fetchIndex} sx={{ p: 0.5 }}>
-            <RefreshIcon sx={{ fontSize: 14 }} />
-          </IconButton>
+          <Tooltip title="New folder">
+            <IconButton size="small" onClick={createFolder} sx={{ p: 0.5 }}>
+              <CreateNewFolderIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Refresh">
+            <IconButton size="small" onClick={fetchIndex} sx={{ p: 0.5 }}>
+              <RefreshIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
         </Box>
       </Box>
-      <List dense disablePadding sx={{ flex: 1, overflow: 'auto' }}>
-        {tree.roots.map((entry) => (
-          <EntryRow
-            key={entry.id}
-            entry={entry}
+
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <List dense disablePadding sx={{ flex: 1, overflow: 'auto' }}>
+          <FolderContents
+            folder={root}
             depth={0}
-            children={tree.byParent.get(entry.file) ?? []}
-            byParent={tree.byParent}
+            byId={byId}
+            lineage={lineage}
+            placedInFolder={placedInFolder}
             expanded={expanded}
             toggleExpanded={toggleExpanded}
             fileName={fileName}
@@ -282,134 +410,269 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
             loadingId={loadingId}
             onLoad={loadStructure}
             onStar={handleStar}
+            onRenameFolder={renameFolder}
+            onDeleteFolder={deleteFolder}
+            renamingId={renamingId}
+            setRenamingId={setRenamingId}
+            renameDraft={renameDraft}
+            setRenameDraft={setRenameDraft}
           />
-        ))}
-      </List>
+        </List>
+      </DndContext>
+
       <Box sx={{ px: 1.5, py: 0.5, borderTop: 1, borderColor: 'divider' }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.6rem' }}>
-          Add files to <code>structures/</code> + update <code>index.json</code>
+          Drag rows to reorder · drop onto a folder header to move inside
         </Typography>
       </Box>
     </Box>
   )
 }
 
-interface EntryRowProps {
-  entry: StructureEntry
-  depth: number
-  children: StructureEntry[]
-  byParent: Map<string, StructureEntry[]>
+/* ────────────────────────────────────────────────────────────────────────
+ * Rows
+ * ──────────────────────────────────────────────────────────────────────── */
+
+interface RowCtx {
+  byId: Map<string, AnyEntry>
+  lineage: Map<string, StructureEntry[]>
+  /** Ids that appear inside SOME folder.children. Used to suppress
+   *  default lineage rendering — a lineage child placed in a folder
+   *  is shown only there, not under its parent. */
+  placedInFolder: Set<string>
   expanded: Set<string>
-  toggleExpanded: (file: string) => void
+  toggleExpanded: (id: string) => void
   fileName: string | null
   secondaryFileName: string | null
   loadingId: string | null
-  onLoad: (entry: StructureEntry) => void
+  onLoad: (e: StructureEntry) => void
   onStar: (file: string) => void
-  /** If this entry has a starred descendant, the name to display as a hint. */
-  starredDescendantName?: string | null
+  onRenameFolder: (id: string, name: string) => void
+  onDeleteFolder: (id: string) => void
+  renamingId: string | null
+  setRenamingId: (id: string | null) => void
+  renameDraft: string
+  setRenameDraft: (s: string) => void
 }
 
-function EntryRow({
-  entry,
-  depth,
-  children,
-  byParent,
-  expanded,
-  toggleExpanded,
-  fileName,
-  secondaryFileName,
-  loadingId,
-  onLoad,
-  onStar,
-  starredDescendantName,
-}: EntryRowProps) {
-  const inPrimary = fileName === entry.file
-  const inSecondary = secondaryFileName === entry.file
-  const isActive = inPrimary || inSecondary
-  const isLoading = loadingId === entry.id
-  const hasChildren = children.length > 0
-  const isExpanded = expanded.has(entry.file)
+function FolderContents({ folder, depth, ...ctx }: { folder: FolderEntry; depth: number } & RowCtx) {
+  // Lineage children CAN appear here — user explicitly placed them. We
+  // only filter out unknown ids (stale references). Duplication with
+  // default lineage rendering is prevented by `placedInFolder` (see
+  // StructureRow's lineage render path).
+  const items = folder.children.filter(id => ctx.byId.has(id))
+  return (
+    <SortableContext items={items} strategy={verticalListSortingStrategy}>
+      {items.map(id => {
+        const child = ctx.byId.get(id)!
+        if (isFolder(child)) {
+          return <FolderRow key={id} folder={child} depth={depth} {...ctx} />
+        }
+        return <StructureRow key={id} structure={child} depth={depth} draggable {...ctx} />
+      })}
+    </SortableContext>
+  )
+}
 
-  // For a family ROOT (depth 0), find a starred descendant for the hint
-  // chip. NB: we deliberately DON'T require `!entry.parent` — an entry can
-  // become a tree root even with a non-empty `parent` field if that parent
-  // file doesn't exist on disk (an orphan reference, usually leftover from
-  // an old buggy star/swap). Hiding the chip in that case made the bug
-  // invisible to the user. The vite scanner now also auto-cleans these.
-  let starredHintName = starredDescendantName ?? null
-  if (depth === 0 && !entry.starred && !starredHintName) {
-    const stack: StructureEntry[] = [...children]
+function FolderRow({ folder, depth, ...ctx }: { folder: FolderEntry; depth: number } & RowCtx) {
+  const sortable = useSortable({ id: folder.id, data: { type: 'folder' } })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+    opacity: sortable.isDragging ? 0.4 : 1,
+  }
+  const isExpanded = ctx.expanded.has(folder.id)
+  const isRenaming = ctx.renamingId === folder.id
+
+  const commitRename = () => {
+    const next = ctx.renameDraft.trim()
+    ctx.setRenamingId(null)
+    if (next && next !== folder.name) ctx.onRenameFolder(folder.id, next)
+  }
+
+  return (
+    <>
+      <Box ref={sortable.setNodeRef} style={style}>
+        <Box
+          sx={{
+            display: 'flex', alignItems: 'center',
+            borderBottom: '1px solid', borderColor: 'divider',
+            py: 0.5, px: 1, pl: 1 + depth * 1.5,
+            // Highlight the folder row when something is being dragged
+            // OVER it — visual cue for "drop here to move inside".
+            backgroundColor: sortable.isOver && !sortable.isDragging ? 'rgba(74,118,196,0.10)' : 'transparent',
+            transition: 'background-color 80ms',
+          }}
+        >
+          <Box {...sortable.attributes} {...sortable.listeners} sx={{ display: 'flex', alignItems: 'center', cursor: 'grab', mr: 0.25 }}>
+            <DragIndicatorIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => ctx.toggleExpanded(folder.id)}
+            sx={{ p: 0, mr: 0.25 }}
+          >
+            {isExpanded
+              ? <ExpandMoreIcon sx={{ fontSize: 16 }} />
+              : <ChevronRightIcon sx={{ fontSize: 16 }} />}
+          </IconButton>
+          {isExpanded
+            ? <FolderOpenIcon sx={{ fontSize: 16, color: '#f5a623', mr: 0.5 }} />
+            : <FolderIcon sx={{ fontSize: 16, color: '#f5a623', mr: 0.5 }} />}
+          {isRenaming ? (
+            <TextField
+              autoFocus
+              size="small"
+              value={ctx.renameDraft}
+              onChange={(e) => ctx.setRenameDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename()
+                if (e.key === 'Escape') ctx.setRenamingId(null)
+              }}
+              sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: '0.75rem', py: 0.25 } }}
+            />
+          ) : (
+            <Typography
+              variant="body2"
+              onDoubleClick={() => {
+                ctx.setRenameDraft(folder.name)
+                ctx.setRenamingId(folder.id)
+              }}
+              sx={{ flex: 1, fontWeight: 600, fontSize: '0.75rem' }}
+            >
+              {folder.name}
+            </Typography>
+          )}
+          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.6rem', mx: 0.5 }}>
+            {folder.children.length}
+          </Typography>
+          <Tooltip title="Delete folder (children promoted up)">
+            <IconButton size="small" onClick={() => ctx.onDeleteFolder(folder.id)} sx={{ p: 0.25 }}>
+              <DeleteOutlineIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </Box>
+      {isExpanded && (
+        <FolderContents folder={folder} depth={depth + 1} {...ctx} />
+      )}
+    </>
+  )
+}
+
+function StructureRow({ structure, depth, draggable = false, ...ctx }: { structure: StructureEntry; depth: number; draggable?: boolean } & RowCtx) {
+  // Only top-level entries (children of folders) are draggable. Lineage
+  // children render under their parent and must NOT register as sortable
+  // items — otherwise dragging them moves them into a folder's children
+  // and they appear twice (once as folder member, once as lineage child).
+  const sortable = useSortable({
+    id: structure.file,
+    data: { type: 'structure' },
+    disabled: !draggable,
+  })
+  const style: React.CSSProperties = draggable ? {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+    opacity: sortable.isDragging ? 0.4 : 1,
+  } : {}
+  const isLoading = ctx.loadingId === structure.id
+  const lineageChildren = ctx.lineage.get(structure.file) ?? []
+  const hasLineage = lineageChildren.length > 0
+  const isExpanded = ctx.expanded.has(structure.file)
+
+  // A row is "in viewer A/B" when its own file matches, OR — for lineage
+  // roots — when ANY descendant in its lineage is the loaded file. This
+  // handles the click-a-root-with-starred-descendant case: we load the
+  // descendant, but the user clicked the root and expects the A/B chip
+  // there too. Hint chip already exists on the root; without this, the
+  // active marker only appears on the descendant.
+  const isFileInOwnLineage = (target: string | null): boolean => {
+    if (!target) return false
+    if (structure.file === target) return true
+    if (structure.parent) return false           // only lineage ROOTS bubble up
+    const stack = [...lineageChildren]
+    const seen = new Set<string>()
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      if (seen.has(cur.file)) continue
+      seen.add(cur.file)
+      if (cur.file === target) return true
+      for (const c of (ctx.lineage.get(cur.file) ?? [])) stack.push(c)
+    }
+    return false
+  }
+  const inPrimary = isFileInOwnLineage(ctx.fileName)
+  const inSecondary = isFileInOwnLineage(ctx.secondaryFileName)
+  const isActive = inPrimary || inSecondary
+
+  // Starred-descendant hint chip on lineage roots.
+  let starredHintName: string | null = null
+  if (!structure.parent && !structure.starred && hasLineage) {
+    const stack: StructureEntry[] = [...lineageChildren]
     const seen = new Set<string>()
     while (stack.length > 0) {
       const cur = stack.pop()!
       if (seen.has(cur.file)) continue
       seen.add(cur.file)
       if (cur.starred) { starredHintName = cur.name; break }
-      for (const grand of byParent.get(cur.file) ?? []) stack.push(grand)
+      for (const grand of (ctx.lineage.get(cur.file) ?? [])) stack.push(grand)
     }
   }
 
   return (
-    <>
+    <Box ref={draggable ? sortable.setNodeRef : undefined} style={style}>
       <ListItemButton
         selected={isActive}
-        onClick={() => onLoad(entry)}
+        onClick={() => ctx.onLoad(structure)}
         disabled={isLoading}
         sx={{
-          borderBottom: '1px solid',
-          borderColor: 'divider',
+          borderBottom: '1px solid', borderColor: 'divider',
           borderLeft: isActive ? '3px solid' : '3px solid transparent',
           borderLeftColor: isActive ? 'primary.main' : 'transparent',
           py: 0.75, px: 1, pl: 1 + depth * 1.5,
         }}
       >
-        {/* Chevron / indent indicator */}
+        {draggable ? (
+          <Box {...sortable.attributes} {...sortable.listeners}
+            onClick={(e) => e.stopPropagation()}
+            sx={{ display: 'flex', alignItems: 'center', cursor: 'grab', mr: 0.25 }}>
+            <DragIndicatorIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+          </Box>
+        ) : (
+          <Box sx={{ width: 14, mr: 0.25 }} />
+        )}
         <Box sx={{ width: 18, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
-          {hasChildren ? (
+          {hasLineage ? (
             <IconButton
               size="small"
-              onClick={(e) => { e.stopPropagation(); toggleExpanded(entry.file) }}
+              onClick={(e) => { e.stopPropagation(); ctx.toggleExpanded(structure.file) }}
               sx={{ p: 0 }}
             >
               {isExpanded
                 ? <ExpandMoreIcon sx={{ fontSize: 16 }} />
-                : <ChevronRightIcon sx={{ fontSize: 16 }} />
-              }
+                : <ChevronRightIcon sx={{ fontSize: 16 }} />}
             </IconButton>
-          ) : depth > 0 ? (
-            <SubdirectoryArrowRightIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
-          ) : null}
+          ) : depth > 0 ? <SubdirectoryArrowRightIcon sx={{ fontSize: 12, color: 'text.disabled' }} /> : null}
         </Box>
-
         <ListItemText
           primary={
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
               <Typography variant="body2" sx={{ fontWeight: depth === 0 ? 600 : 500, fontSize: '0.75rem' }}>
-                {entry.name}
+                {structure.name}
               </Typography>
-              {entry.command && (
-                <Chip
-                  label={entry.command}
-                  size="small"
-                  variant="outlined"
-                  sx={{ height: 14, fontSize: '0.55rem', '& .MuiChip-label': { px: 0.5 } }}
-                />
+              {structure.command && (
+                <Chip label={structure.command} size="small" variant="outlined"
+                  sx={{ height: 14, fontSize: '0.55rem', '& .MuiChip-label': { px: 0.5 } }} />
               )}
               {starredHintName && (
                 <Tooltip title={`Clicking loads ${starredHintName} (starred descendant)`}>
                   <Chip
                     icon={<StarIcon sx={{ fontSize: 12, color: '#f5a623 !important' }} />}
                     label={`→ ${starredHintName}`}
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                      height: 14,
-                      fontSize: '0.55rem',
-                      borderColor: '#f5a623',
-                      color: '#a0670f',
-                      '& .MuiChip-label': { px: 0.5 },
-                    }}
+                    size="small" variant="outlined"
+                    sx={{ height: 14, fontSize: '0.55rem', borderColor: '#f5a623', color: '#a0670f',
+                      '& .MuiChip-label': { px: 0.5 } }}
                   />
                 </Tooltip>
               )}
@@ -425,42 +688,40 @@ function EntryRow({
           }
           secondary={
             <Typography component="span" variant="caption" sx={{ color: 'text.secondary', fontSize: '0.6rem', display: 'block' }}>
-              {entry.description || entry.file}
+              {structure.description || structure.file}
             </Typography>
           }
         />
-        {/* Star button — re-roots the tree on a child, just toggles flag on a root */}
-        <Tooltip title={entry.starred ? 'Unstar' : (entry.parent ? 'Promote to root (parent becomes its child)' : 'Star this root')}>
+        <Tooltip title={structure.starred ? 'Unstar' : (structure.parent ? 'Star this lineage entry' : 'Star this root')}>
           <IconButton
             size="small"
-            onClick={(e) => { e.stopPropagation(); onStar(entry.file) }}
+            onClick={(e) => { e.stopPropagation(); ctx.onStar(structure.file) }}
             sx={{ p: 0.5, flexShrink: 0 }}
           >
-            {entry.starred
+            {structure.starred
               ? <StarIcon sx={{ fontSize: 16, color: '#f5a623' }} />
-              : <StarBorderIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-            }
+              : <StarBorderIcon sx={{ fontSize: 16, color: 'text.secondary' }} />}
           </IconButton>
         </Tooltip>
       </ListItemButton>
 
-      {/* Children */}
-      {hasChildren && isExpanded && children.map((child) => (
-        <EntryRow
-          key={child.id}
-          entry={child}
-          depth={depth + 1}
-          children={byParent.get(child.file) ?? []}
-          byParent={byParent}
-          expanded={expanded}
-          toggleExpanded={toggleExpanded}
-          fileName={fileName}
-          secondaryFileName={secondaryFileName}
-          loadingId={loadingId}
-          onLoad={onLoad}
-          onStar={onStar}
-        />
-      ))}
-    </>
+      {/* Lineage children. Render only those NOT explicitly placed in
+       *  some folder — those already render where the user put them.
+       *  Remaining lineage children render here AND are draggable so
+       *  the user can move them out. Wrapped in a SortableContext so
+       *  dnd-kit can register / pick them up.
+       */}
+      {hasLineage && isExpanded && (() => {
+        const visible = lineageChildren.filter(c => !ctx.placedInFolder.has(c.file))
+        if (visible.length === 0) return null
+        return (
+          <SortableContext items={visible.map(c => c.file)} strategy={verticalListSortingStrategy}>
+            {visible.map(child => (
+              <StructureRow key={child.file} structure={child} depth={depth + 1} draggable {...ctx} />
+            ))}
+          </SortableContext>
+        )
+      })()}
+    </Box>
   )
 }

@@ -147,7 +147,7 @@ export function validateNoDuplicateTargets(args: string[]): void {
  * ──────────────────────────────────────────────────────────────────────── */
 
 interface PipelineStep {
-  command: 'renumber' | 'prepare' | 'glycam' | 'minimize' | 'protonate'
+  command: 'renumber' | 'prepare' | 'convert' | 'minimize' | 'protonate'
   extraArgs: string[]
 }
 
@@ -165,11 +165,11 @@ export function pipelineSteps(
     return [
       { command: 'renumber', extraArgs: ['--scheme', schemeArg] },
       { command: 'prepare',  extraArgs: mutateFlags },
-      { command: 'glycam',   extraArgs: [] },                       // no --to-charmm
+      { command: 'convert',  extraArgs: [] },                       // no --to-charmm (GLYCAM form)
       { command: 'minimize', extraArgs: ['--no-solvent'] },
       { command: 'protonate', extraArgs: [] },
       { command: 'minimize', extraArgs: ['--no-solvent'] },
-      { command: 'glycam',   extraArgs: ['--to-charmm'] },
+      { command: 'convert',  extraArgs: ['--to-charmm'] },
     ]
   }
   // 5-step no-glycan pipeline (per the user's confirmation):
@@ -320,7 +320,7 @@ export async function runEngineerPipeline(p: PipelineInput): Promise<void> {
 
     const step = steps[i]
     // Suffix with step index so the same command appearing twice in the
-    // pipeline (minimize, glycam) doesn't collide on output dir.
+    // pipeline (minimize, convert) doesn't collide on output dir.
     const subdir = `dvb_${step.command}_${tsTag()}_s${i + 1}`
     const outDir = path.join(p.structuresDir, subdir)
     fs.mkdirSync(outDir, { recursive: true })

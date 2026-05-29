@@ -19,7 +19,7 @@ import {
   clearHighlight,
   showSelectionSticks,
   clearSelectionSticks,
-  focusResiduesInViewer,
+  showSurroundingsAndFocus,
 } from '../lib/molstar-helpers'
 
 const NON_SEQ = new Set([
@@ -315,23 +315,19 @@ export function AlignmentPanel() {
     const needSyncSuppression = pluginA && pluginB && pluginA !== pluginB && cameraSyncEnabled
     if (needSyncSuppression) setCameraSyncEnabled(false)
 
+    // Show selection + neighbors-within-5Å as solid sticks AND zoom the
+    // camera, in a single deterministic call. `showSurroundingsAndFocus`
+    // uses our own tagged repr instead of focus.setFromLoci, so Mol*'s
+    // built-in focus auto-pan doesn't fight our camera move (which caused
+    // the first-click jump). The base selection sticks remain from
+    // pushToViewer's showSelectionSticks call.
     if (pluginA && optA && selA.size > 0) {
       const residues = Array.from(selA).map(seqId => ({ chainId: optA.chainId, seqId }))
-      focusResiduesInViewer(pluginA, residues)
-      const structure = pluginA.managers.structure.hierarchy.current.structures[0]?.cell.obj?.data
-      if (structure) {
-        const loci = pluginA.managers.structure.selection.getLoci(structure)
-        if (loci) pluginA.managers.camera.focusLoci(loci)
-      }
+      showSurroundingsAndFocus(pluginA, residues)
     }
     if (pluginB && optB && selB.size > 0 && pluginB !== pluginA) {
       const residues = Array.from(selB).map(seqId => ({ chainId: optB.chainId, seqId }))
-      focusResiduesInViewer(pluginB, residues)
-      const structure = pluginB.managers.structure.hierarchy.current.structures[0]?.cell.obj?.data
-      if (structure) {
-        const loci = pluginB.managers.structure.selection.getLoci(structure)
-        if (loci) pluginB.managers.camera.focusLoci(loci)
-      }
+      showSurroundingsAndFocus(pluginB, residues)
     }
 
     if (needSyncSuppression) {

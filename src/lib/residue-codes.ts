@@ -17,8 +17,10 @@ const THREE_TO_ONE: Record<string, string> = {
   ASH: 'D', ASPP: 'D', AS4: 'D',
   // Glutamate variants
   GLH: 'E', GLUP: 'E', GL4: 'E',
-  // Lysine variants
-  LYN: 'K', KCX: 'K', MLY: 'K', M3L: 'K', MLZ: 'K',
+  // Lysine variants (LSN = deprotonated lysine, AMBER neutral form)
+  LYN: 'K', LSN: 'K', KCX: 'K', MLY: 'K', M3L: 'K', MLZ: 'K',
+  // Asparagine variants (NLN = N-glycosylated asparagine, GLYCAM convention)
+  NLN: 'N',
   // Serine/Threonine (phosphorylated)
   SEP: 'S', TPO: 'T', PTR: 'Y',
   // Methionine

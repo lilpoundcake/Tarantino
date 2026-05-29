@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useStructureStore } from '../stores/structureStore'
 import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context'
-import type { Camera } from 'molstar/lib/mol-canvas3d/camera'
 
 /**
  * Bidirectional camera synchronisation between the primary and secondary
@@ -21,40 +20,49 @@ export function useCameraSync() {
   useEffect(() => {
     if (!enabled || !plugin || !secondaryPlugin || !plugin.canvas3d || !secondaryPlugin.canvas3d) return
 
-    // Last applied snapshot per side — used to detect "this draw was caused by us"
-    let lastFromA: Camera.Snapshot | null = null
-    let lastFromB: Camera.Snapshot | null = null
-    // Per-side suppress flags
-    let applyingToB = false
-    let applyingToA = false
+    // Anti-feedback via "pending draw" flags. When we mirror A→B by
+    // calling `B.setState(snap, 0) + B.requestDraw()`, B will emit a
+    // didDraw on the next animation frame. We mark `pendingFromAToB =
+    // true` so subB consumes that flag and skips its mirror (no echo
+    // back to A). Snap-value equality is NOT used because A's focus
+    // animation updates A's snap every frame: by the time B's "echo
+    // draw" reaches subB, `lastAppliedToB` has already advanced to the
+    // newer snap, so the equality check fails and the echo isn't
+    // suppressed — that's how the previous implementation interrupted
+    // A's in-flight focus animation. The pending-flag pattern is
+    // value-independent and survives an animation that fires several
+    // didDraw events in a row.
+    let pendingFromAToB = false
+    let pendingFromBToA = false
 
     const mirror = (
       src: PluginUIContext,
       dst: PluginUIContext,
-      lastApplied: Camera.Snapshot | null,
-      setLastApplied: (s: Camera.Snapshot) => void,
-      setApplyingDst: (b: boolean) => void,
-      isApplyingSrc: () => boolean,
+      consumePendingOnSrc: () => boolean,
+      setPendingOnDst: (b: boolean) => void,
     ) => {
-      if (isApplyingSrc()) return // suppress: this draw was caused by our own push
+      if (consumePendingOnSrc()) return        // This draw is our own echo — skip.
       if (!src.canvas3d || !dst.canvas3d) return
-      const snap = src.canvas3d.camera.getSnapshot()
-      if (lastApplied && snapshotsEqual(snap, lastApplied)) return
-      setLastApplied(snap)
-      setApplyingDst(true)
-      // 0ms duration: instant mirror; no animation flicker
-      dst.canvas3d.camera.setState(snap, 0)
+      const srcSnap = src.canvas3d.camera.getSnapshot()
+      setPendingOnDst(true)
+      // 0ms duration: instant mirror, no animation flicker.
+      dst.canvas3d.camera.setState(srcSnap, 0)
       dst.canvas3d.requestDraw()
-      // Release suppress on the destination after the next microtask so its
-      // didDraw fires while suppress is true and is ignored.
-      Promise.resolve().then(() => { setApplyingDst(false) })
     }
 
     const subA = plugin.canvas3d.didDraw.subscribe(() => {
-      mirror(plugin, secondaryPlugin, lastFromA, s => { lastFromA = s }, b => { applyingToB = b }, () => applyingToA)
+      mirror(
+        plugin, secondaryPlugin,
+        () => { if (pendingFromBToA) { pendingFromBToA = false; return true } return false },
+        b => { pendingFromAToB = b },
+      )
     })
     const subB = secondaryPlugin.canvas3d.didDraw.subscribe(() => {
-      mirror(secondaryPlugin, plugin, lastFromB, s => { lastFromB = s }, b => { applyingToA = b }, () => applyingToB)
+      mirror(
+        secondaryPlugin, plugin,
+        () => { if (pendingFromAToB) { pendingFromAToB = false; return true } return false },
+        b => { pendingFromBToA = b },
+      )
     })
 
     return () => {
@@ -64,16 +72,3 @@ export function useCameraSync() {
   }, [plugin, secondaryPlugin, enabled])
 }
 
-function snapshotsEqual(a: Camera.Snapshot, b: Camera.Snapshot): boolean {
-  if (a === b) return true
-  if (a.mode !== b.mode || a.fov !== b.fov || a.radius !== b.radius) return false
-  return vecEq(a.position, b.position) && vecEq(a.target, b.target) && vecEq(a.up, b.up)
-}
-
-function vecEq(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (Math.abs(a[i] - b[i]) > 1e-6) return false
-  }
-  return true
-}

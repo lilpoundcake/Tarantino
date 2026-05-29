@@ -69,11 +69,21 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
       pluginRef.current = plugin
       setPluginForSlot(plugin)
 
-      // Set 3D viewport background color (official API)
+      // Set 3D viewport background color + take exclusive ownership of the
+      // camera. `manualReset: true` tells Mol*'s Canvas3D.commitScene to NEVER
+      // call resolveCameraReset on its own — otherwise any state-tree update
+      // that expands the scene's bounding sphere (e.g. adding a surroundings
+      // stick repr from the Sequence/Alignment zoom button) overwrites our
+      // explicit camera.focusSphere mid-animation, producing the
+      // "jump-and-snap-back" the user sees.
+      // See node_modules/molstar/lib/mol-canvas3d/canvas3d.js:commitScene
+      // for the auto-reset trigger.
       const renderer = plugin.canvas3d!.props.renderer
+      const camera = plugin.canvas3d!.props.camera
       PluginCommands.Canvas3D.SetSettings(plugin, {
         settings: {
           renderer: { ...renderer, backgroundColor: ColorNames.white },
+          camera: { ...camera, manualReset: true },
         },
       })
 
@@ -176,28 +186,44 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
               }
             }
 
-            // Orient camera to PCA axes — same as Mol*'s "Orient Axes" UI button.
-            // Gated on the `autoOrientOnLoad` setting (default OFF; toggled in
-            // the Settings panel). When ON, suppress camera sync during the
-            // orient so the snapshot doesn't get mirrored to the other viewer
-            // mid-orientation (which would either fight a pending orient there
-            // or overwrite its already-correct camera).
+            // Camera positioning on load. Mol*'s built-in auto-fit on first
+            // structure (commitScene → resolveCameraReset) is suppressed
+            // because we set `manualReset: true` (needed so user-initiated
+            // focus animations aren't yanked back by commitScene). So we
+            // MUST manually fit the camera here, otherwise the viewer
+            // renders a blank canvas until the user clicks empty space
+            // (which triggers attachEmptyClickCleanup's camera.reset).
+            //
+            // Branch:
+            // - autoOrientOnLoad ON  → OrientAxes (PCA-aligned view)
+            // - autoOrientOnLoad OFF → plain camera.reset (fit-to-scene)
             const pluginNow = pluginRef.current
             const storeAtLoad = useStructureStore.getState()
+            const wasSyncEnabled = storeAtLoad.cameraSyncEnabled
             if (storeAtLoad.autoOrientOnLoad) {
-              const wasSyncEnabled = storeAtLoad.cameraSyncEnabled
               if (wasSyncEnabled) storeAtLoad.setCameraSyncEnabled(false)
               setTimeout(() => {
                 if (cancelled) return
                 PluginCommands.Camera.OrientAxes(pluginNow)
                   .catch(() => {})
                   .finally(() => {
-                    // Restore sync after the orient animation settles
                     setTimeout(() => {
                       if (wasSyncEnabled) useStructureStore.getState().setCameraSyncEnabled(true)
                     }, 600)
                   })
               }, 200)
+            } else {
+              // Same sync-suppression dance to avoid mirroring the fit
+              // animation into the secondary viewer (which may show a
+              // completely different structure).
+              if (wasSyncEnabled) storeAtLoad.setCameraSyncEnabled(false)
+              setTimeout(() => {
+                if (cancelled) return
+                pluginNow.managers.camera.reset(undefined, 0)
+                setTimeout(() => {
+                  if (wasSyncEnabled) useStructureStore.getState().setCameraSyncEnabled(true)
+                }, 100)
+              }, 50)
             }
           }
         }

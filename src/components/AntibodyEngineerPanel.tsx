@@ -559,7 +559,7 @@ export function AntibodyEngineerPanel() {
         <Box sx={{ mt: 1, p: 0.75, bgcolor: 'action.hover', borderRadius: 1 }}>
           <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', whiteSpace: 'pre-wrap' }}>
             {(effectiveHasGlycan
-              ? ['renumber --scheme ' + scheme, 'prepare --mutate ...', 'glycam', 'minimize --no-solvent', 'protonate', 'minimize --no-solvent', 'glycam --to-charmm']
+              ? ['renumber --scheme ' + scheme, 'prepare --mutate ...', 'convert', 'minimize --no-solvent', 'protonate', 'minimize --no-solvent', 'convert --to-charmm']
               : ['renumber --scheme ' + scheme, 'prepare --mutate ...', 'minimize --no-solvent', 'protonate', 'minimize --no-solvent']
             ).map((s, i) => `${i + 1}. ${s}`).join('\n')}
           </Typography>
