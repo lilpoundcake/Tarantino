@@ -23,7 +23,7 @@ mutations table.
   pi-stacking, and more with chain pair filtering; auto-filters when Show
   Interface is active
 - **DVBFixer panel** -- form-driven UI for the DVBFixer CLI (split, renumber,
-  model, prepare, minimize, protonate, glycam); outputs appear as nested
+  model, prepare, minimize, protonate, convert); outputs appear as nested
   children of the input structure in the Library
 - **Mutations panel** -- editable DataGrid backed by PostgreSQL for keeping
   antibody mutation sets (e.g. YTE, LS, DLE)
@@ -53,7 +53,7 @@ hint; everything else works.
 ### Full install (DVBFixer + Mutations)
 
 Tarantino can drive a [DVBFixer](https://github.com/lilpoundcake/DVBFixer)
-pipeline (split / renumber / model / prepare / minimize / protonate / glycam)
+pipeline (split / renumber / model / prepare / minimize / protonate / convert)
 and store antibody mutation sets in PostgreSQL. Both are exposed as panels.
 
 **1.** Create a single `tarantino` micromamba env that holds the DVBFixer
@@ -145,7 +145,7 @@ React 19, TypeScript 6, Vite 6, Mol*, MUI (Material UI v9, plus
 | Alignment           | Pairwise Needleman-Wunsch (BLOSUM62) across chains, incl. across structure A and B; click number row to pick the same column on both sides |
 | Elements            | Categorized tree (polymer/ligand/ion/water) with per-component visibility + per-chain Show Interface |
 | Interactions        | Computed non-covalent + covalent contacts, filterable by type and chain pair |
-| DVBFixer            | Run split / renumber / model / prepare / minimize / protonate / glycam; outputs land in `structures/dvb_<command>_<timestamp>/` and appear as children in the Library |
+| DVBFixer            | Run split / renumber / model / prepare / minimize / protonate / convert; outputs land in `structures/dvb_<command>_<timestamp>/` and appear as children in the Library |
 | Mutations           | Editable DataGrid backed by PostgreSQL (`mutations` table: chain / mutation_name / mutations) |
 | Library             | Expandable tree of structures from `structures/`. **Everything is collapsed by default** — click a chevron to open a parent. Star a row to set it as the family's default load target. Auto-refreshes whenever anything in the library changes. |
 | Info                | Editable metadata (name, organism, method, resolution, notes) + stats. Edits **auto-save per-structure** to `index.json` (debounced 500 ms). |
@@ -163,7 +163,7 @@ Sequence panels maintain independent chain selections.
 | prepare   | Add missing residues, heavy atoms, hydrogens via PDBFixer; supports point mutations        |
 | minimize  | Energy-minimize with OpenMM (AMBER14 + GLYCAM); optional xtb / obminimize post-refine     |
 | protonate | Predict per-residue pKa (PROPKA3); rename to AMBER protonation variants at target pH       |
-| glycam    | Convert glycan PDB residues (BGC, GAL, NAG, ...) to GLYCAM 3-character codes (`--to-charmm` for CHARMM nomenclature instead) |
+| convert   | Convert structure naming between PDB/AMBER/GLYCAM and CHARMM conventions. Default (`--to-amber`): PDB/CHARMM → GLYCAM sugars + AMBER protonation variants (HID/HIE/HIP, ASH/GLH, LYN, CYX/CYM). With `--to-charmm`: reverse direction (GLYCAM/AMBER → CHARMM, NLN/OLS/OLT revert to ASN/SER/THR, ROH/OME caps dropped). The two flags are mutually exclusive. `--no-roh` applies only to the `--to-amber` direction. Was named `glycam` in older DVBFixer versions. |
 
 Each command's flags are auto-generated from `server/dvbfixer-spec.ts`. The
 form supports comma-separated repeatable flags (`--mutate A:272:GLU,A:283:GLU`
@@ -211,12 +211,23 @@ To mark something as a child of another structure, add `"parent": "<file>"`.
 
 ## Pre-loaded structures
 
-| ID   | Name            | Chains | Residues | Notes                          |
-|------|-----------------|--------|----------|--------------------------------|
-| 1crn | Crambin         | 1      | 46       | Small plant protein            |
-| 1ubq | Ubiquitin       | 1      | 76       | Protein degradation regulator  |
-| 4hhb | Hemoglobin      | 4      | 574      | Oxygen transport, 4 subunits   |
-| 1bna | B-DNA Dodecamer | 2      | 24       | Classic B-form DNA helix       |
+The repo ships with an Fc-receptor / C1q working set focused on antibody
+engineering use cases:
+
+| File              | Name   | Notes                                                                 |
+|-------------------|--------|-----------------------------------------------------------------------|
+| `FcRn.pdb`        | FcRn   | Neonatal Fc receptor (recycling / half-life extension; YTE target)    |
+| `FcgRI.pdb`       | FcγRI  | High-affinity IgG receptor (CD64)                                     |
+| `FcgRIIa.pdb`     | FcγRIIa | Low-affinity IgG receptor (CD32a)                                    |
+| `FcgRIIb.pdb`     | FcγRIIb | Inhibitory IgG receptor (CD32b)                                      |
+| `FcgRIIIa.pdb`    | FcγRIIIa | Low-affinity IgG receptor (CD16a; F158 wild-type)                   |
+| `FcgRIIIa_158V.pdb` | FcγRIIIa V158 | V158 high-responder allotype variant of FcγRIIIa              |
+| `FcgRIIIb.pdb`    | FcγRIIIb | GPI-anchored neutrophil IgG receptor (CD16b)                        |
+| `C1q.pdb`         | C1q    | Complement classical-pathway recognition subunit                      |
+
+These were chosen as everyday antibody-engineering substrates (Fc / FcγR /
+FcRn / C1q interactions). Swap them out for your own files; the scanner
+auto-detects anything you drop into `structures/`.
 
 ## Controls
 
