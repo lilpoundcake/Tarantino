@@ -20,6 +20,8 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import { useStructureStore } from '../stores/structureStore'
+import { chainToSequence } from '../lib/alignment'
+import { filterSequenceableChains } from '../lib/chain-grouping'
 
 // Re-declare the spec types here (mirrors server/dvbfixer-spec.ts) so the
 // frontend doesn't have to import server/. The actual spec is fetched at
@@ -148,16 +150,79 @@ export function DVBFixerPanel() {
     setValues(prev => ({ ...prev, [cmd]: { ...(prev[cmd] ?? {}), [flag]: v } }))
   }, [])
 
+  /* ── Model tab: per-chain FASTA inputs ─────────────────────────────
+   * The model command takes --fasta <path>. To save users the hassle
+   * of writing a FASTA file themselves, we render a textarea per chain
+   * of the loaded primary structure. The contents are concatenated into
+   * a real FASTA string and shipped as `fastaContent` in the request
+   * body; the backend writes it to a file beside the output and injects
+   * `--fasta <path>` into the args automatically.
+   */
+  const primaryChains = useStructureStore((s) => s.chains)
+  const primaryFileNameStore = useStructureStore((s) => s.fileName)
+  const inputMatchesLoaded = !!primaryFileNameStore && primaryFileNameStore === inputFile
+
+  // Polypeptide chains only; drops water/ion/glycan etc.
+  const seqChains = useMemo(() => {
+    if (!inputMatchesLoaded) return []
+    return filterSequenceableChains(primaryChains)
+  }, [primaryChains, inputMatchesLoaded])
+
+  // Map<chainId, sequence string>. Edited by the user.
+  const [fastaByChain, setFastaByChain] = useState<Record<string, string>>({})
+
+  // Reset when the user switches inputs (different structure → different chains).
+  useEffect(() => {
+    setFastaByChain({})
+  }, [inputFile])
+
+  const parseFromPdb = useCallback(() => {
+    if (seqChains.length === 0) return
+    const next: Record<string, string> = {}
+    for (const c of seqChains) {
+      // Use the full SEQRES-aware sequence (chainToSequence maps every
+      // compId to a 1-letter code; SEQRES-only residues get included
+      // since they're already in c.residues with present:false).
+      next[c.id] = chainToSequence(c.residues)
+    }
+    setFastaByChain(next)
+  }, [seqChains])
+
+  const setChainFasta = useCallback((chainId: string, value: string) => {
+    setFastaByChain(prev => ({ ...prev, [chainId]: value }))
+  }, [])
+
+  // Build the FASTA file content from the per-chain text fields. One
+  // record per chain that has non-empty content. Wraps sequences at
+  // 60 chars per FASTA convention. Returns '' when no chain is set
+  // (no content shipped).
+  const buildFastaContent = useCallback((): string => {
+    const parts: string[] = []
+    const inputBase = inputFile.replace(/\.(pdb|cif|mmcif)$/i, '').replace(/.*\//, '')
+    for (const c of seqChains) {
+      const raw = (fastaByChain[c.id] ?? '').replace(/\s+/g, '')
+      if (raw.length === 0) continue
+      parts.push(`>${inputBase}_${c.id}`)
+      for (let i = 0; i < raw.length; i += 60) parts.push(raw.slice(i, i + 60))
+    }
+    return parts.length === 0 ? '' : parts.join('\n') + '\n'
+  }, [seqChains, fastaByChain, inputFile])
+
   const handleRun = useCallback(async () => {
     if (!activeCmd || !inputFile) return
     setRunning(true)
     setError(null)
     setResult(null)
     try {
+      // For the `model` tab, materialise the per-chain text inputs into
+      // a real FASTA string; backend writes it to a file and injects
+      // --fasta automatically. Empty string = nothing shipped (backend
+      // ignores).
+      const fastaContent = activeCmd.name === 'model' ? buildFastaContent() : ''
       const res = await fetch(`/api/dvbfixer/${activeCmd.name}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inputFile, values: activeValues }),
+        body: JSON.stringify({ inputFile, values: activeValues, fastaContent }),
       })
       const body = await res.json() as RunResult & { error?: string }
       if (!res.ok) {
@@ -197,7 +262,7 @@ export function DVBFixerPanel() {
     } finally {
       setRunning(false)
     }
-  }, [activeCmd, inputFile, activeValues, refreshStructures])
+  }, [activeCmd, inputFile, activeValues, refreshStructures, buildFastaContent])
 
   const inputOptions = useMemo(
     () => structures.filter(s => /\.(pdb|cif|mmcif)$/i.test(s.file)),
@@ -292,16 +357,105 @@ export function DVBFixerPanel() {
 
             <Divider />
 
-            {/* Flag controls */}
+            {/* Model tab — per-chain FASTA inputs. Renders ONLY for the
+             *  `model` command. The user pastes / parses one sequence per
+             *  chain; on Run those get concatenated into a FASTA file
+             *  passed via --fasta. */}
+            {activeCmd.name === 'model' && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                    Sequences per chain (--fasta)
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Tooltip title={inputMatchesLoaded
+                    ? 'Populate the boxes below with sequences extracted from the loaded structure (SEQRES + ATOM merged via extractChains).'
+                    : 'Load this structure into the primary 3D viewer first to enable parsing.'}>
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={parseFromPdb}
+                        disabled={!inputMatchesLoaded || seqChains.length === 0}
+                      >
+                        Parse from PDB
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Clear all chain boxes">
+                    <span>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => setFastaByChain({})}
+                        disabled={Object.keys(fastaByChain).length === 0}
+                      >
+                        Clear
+                      </Button>
+                    </span>
+                  </Tooltip>
+                </Box>
+
+                {!inputMatchesLoaded && (
+                  <Alert severity="info" sx={{ py: 0.25, fontSize: '0.7rem' }}>
+                    Load the selected input into the primary 3D viewer to
+                    edit per-chain sequences. (Currently the loaded
+                    structure differs from the picked DVBFixer input —
+                    the chain list isn't known.) You can still leave
+                    everything empty and dvbfixer will fall back to
+                    SEQRES from the input PDB.
+                  </Alert>
+                )}
+
+                {inputMatchesLoaded && seqChains.length === 0 && (
+                  <Alert severity="info" sx={{ py: 0.25, fontSize: '0.7rem' }}>
+                    No polypeptide chains detected in the loaded
+                    structure — nothing to feed into --fasta.
+                  </Alert>
+                )}
+
+                {seqChains.length > 0 && (
+                  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 1 }}>
+                    {seqChains.map(c => {
+                      const value = fastaByChain[c.id] ?? ''
+                      const len = value.replace(/\s+/g, '').length
+                      return (
+                        <TextField
+                          key={c.id}
+                          label={`Chain ${c.id}${len > 0 ? ` · ${len} aa` : ''}`}
+                          value={value}
+                          onChange={(e) => setChainFasta(c.id, e.target.value)}
+                          placeholder="Paste single-letter sequence (or click Parse from PDB)"
+                          multiline
+                          minRows={3}
+                          maxRows={8}
+                          fullWidth
+                          slotProps={{
+                            input: {
+                              sx: { fontFamily: 'ui-monospace, monospace', fontSize: '0.7rem' },
+                            },
+                          }}
+                        />
+                      )
+                    })}
+                  </Box>
+                )}
+              </Box>
+            )}
+
+            {/* Flag controls. For the model tab we hide --fasta because
+             *  the per-chain UI above synthesises it automatically. */}
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1.5 }}>
-              {activeCmd.flags.map(f => (
-                <FlagControl
-                  key={f.flag}
-                  flag={f}
-                  value={activeValues[f.flag]}
-                  onChange={(v) => setFlagValue(activeCmd.name, f.flag, v)}
-                />
-              ))}
+              {activeCmd.flags
+                .filter(f => !(activeCmd.name === 'model' && f.flag === '--fasta'))
+                .map(f => (
+                  <FlagControl
+                    key={f.flag}
+                    flag={f}
+                    value={activeValues[f.flag]}
+                    onChange={(v) => setFlagValue(activeCmd.name, f.flag, v)}
+                  />
+                ))}
             </Box>
 
             {result && (result.stdout || result.stderr) && (

@@ -158,7 +158,7 @@
     "mutation_name": "Knob",
     "mutations": "S354C,T366W",
     "igg_subclass": "IgG1,IgG4",
-    "properties": "",
+    "properties": "Bispecific",
     "display_order": 18
   },
   {
@@ -167,7 +167,7 @@
     "mutation_name": "Hole",
     "mutations": "Y349C,T366S,L368A,Y407V",
     "igg_subclass": "IgG1",
-    "properties": "",
+    "properties": "Bispecific",
     "display_order": 19
   },
   {
@@ -176,7 +176,7 @@
     "mutation_name": "Hole",
     "mutations": "Y354C,T371S,L373A,Y412V",
     "igg_subclass": "IgG4",
-    "properties": "",
+    "properties": "Bispecific",
     "display_order": 20
   }
 ]

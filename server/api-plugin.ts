@@ -277,7 +277,15 @@ export function apiPlugin(): Plugin {
           if (!def) return sendJson(res, 404, { error: `unknown command: ${command}` })
 
           const bodyText = await readBody(req)
-          const body = JSON.parse(bodyText || '{}') as { inputFile?: string; values?: Record<string, any> }
+          const body = JSON.parse(bodyText || '{}') as {
+            inputFile?: string
+            values?: Record<string, any>
+            /** Optional raw FASTA content (used by the `model` tab's
+             *  per-chain UI). When set, we write it to a file alongside
+             *  the output dir and inject `--fasta <path>` into the args.
+             *  Overrides any user-typed `--fasta` value. */
+            fastaContent?: string
+          }
           if (!body.inputFile) return sendJson(res, 400, { error: 'inputFile required' })
 
           const inputAbsPath = path.join(structuresDir, body.inputFile)
@@ -294,7 +302,18 @@ export function apiPlugin(): Plugin {
           const inputBase = path.basename(inputResolved, path.extname(inputResolved))
           const outFile = path.join(outDir, `${inputBase}_${command}.pdb`)
 
-          const extraArgs = buildArgs(command, body.values || {})
+          // Materialise inline FASTA content (from the model tab's per-chain
+          // input boxes) into a file inside the output dir and inject
+          // `--fasta <path>` so dvbfixer reads it. Sibling to the output
+          // PDB so it stays around if the user wants to inspect it.
+          const values = { ...(body.values || {}) }
+          if (typeof body.fastaContent === 'string' && body.fastaContent.trim() !== '') {
+            const fastaPath = path.join(outDir, `${inputBase}.fasta`)
+            fs.writeFileSync(fastaPath, body.fastaContent)
+            values['--fasta'] = fastaPath
+          }
+
+          const extraArgs = buildArgs(command, values)
           const result = await runDvbfixer(command, inputResolved, outFile, extraArgs)
 
           // Failed runs: move the output folder out of the library so it

@@ -27,6 +27,8 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
   const setElements = useStructureStore((s) => s.setElements)
   const setMeta = useStructureStore((s) => s.setMeta)
   const setError = useStructureStore((s) => s.setError)
+  const setFileName = useStructureStore((s) => s.setFileName)
+  const setSecondaryFileName = useStructureStore((s) => s.setSecondaryFileName)
 
   const isPrimary = slot === 'primary'
   const setPluginForSlot = isPrimary ? setPlugin : setSecondaryPlugin
@@ -249,12 +251,20 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
         pluginRef.current.dispose()
         pluginRef.current = null
         setPluginForSlot(null)
-        // Clear chains for this slot so AlignmentPanel doesn't list stale entries
-        if (isPrimary) setChains([])
-        else setSecondaryChains([])
+        // Clear chains AND the loaded-file marker for this slot so the
+        // Library doesn't keep showing an A/B chip on a structure whose
+        // viewer was just closed, and AlignmentPanel doesn't list stale
+        // chain entries.
+        if (isPrimary) {
+          setChains([])
+          setFileName(null)
+        } else {
+          setSecondaryChains([])
+          setSecondaryFileName(null)
+        }
       }
     }
-  }, [setPluginForSlot, setChains, setSecondaryChains, setElements, setMeta, setError, isPrimary])
+  }, [setPluginForSlot, setChains, setSecondaryChains, setElements, setMeta, setError, setFileName, setSecondaryFileName, isPrimary])
 
   // Resize observer to handle panel resize
   useEffect(() => {

@@ -120,6 +120,12 @@ independent `PluginUIContext`. Both plugins are kept in `structureStore`
 publishes only its chains (for cross-structure Alignment) — it doesn't touch
 elements / meta / Interactions.
 
+**Tab-close cleanup** — when the user closes a 3D Structure tab,
+`MolstarViewer`'s effect-cleanup disposes the plugin AND clears, for that
+slot, the store's plugin/chains/fileName. Without the `fileName` clear,
+the Library's A/B chip would remain stuck on whichever structure was last
+loaded into that viewer even though the viewer no longer exists.
+
 Post-load, each viewer (a) hides the water component, (b) swaps the **ion**
 component's default ball-and-stick representation for `spacefill` so each ion
 renders as a Van der Waals sphere — `createStructureRepresentationParams(plugin,
@@ -515,12 +521,40 @@ primary viewer and loads the output file directly (`rawData` → `parseTrajector
 output, and resets `userPickedInputRef` so the next run's input mirrors the new
 active structure. Failures leave the viewer untouched.
 
+**Model tab — per-chain FASTA input.** The `model` sub-tab renders a
+custom section above the flag controls: one multi-line `TextField` per
+polypeptide chain of the loaded primary structure (filtered via
+`filterSequenceableChains`). A **Parse from PDB** button populates every
+box via `chainToSequence(chain.residues)` from
+`src/lib/alignment.ts` (SEQRES-aware — residues missing from ATOM coords
+are still included). A **Clear** button empties all boxes. The standard
+`--fasta` text field is hidden in this tab because the per-chain UI
+synthesises it automatically.
+
+On Run, `buildFastaContent()` assembles a valid FASTA string from the
+non-empty chain boxes (60-char-wrapped lines, `>{inputBase}_{chainId}`
+headers) and ships it as `fastaContent` in the request body. The
+backend (`/api/dvbfixer/:command` route in `server/api-plugin.ts`)
+writes the content to `<outDir>/<inputBase>.fasta` and injects
+`--fasta <abspath>` into the CLI args — overriding any user-typed
+`--fasta` value. The materialised FASTA stays beside the output PDB so
+the user can inspect / reuse it.
+
+The per-chain UI is only ENABLED when the picker's input matches the
+primary viewer's `fileName` (we need the chain list). Otherwise an
+Alert tells the user to load the structure first; they can still leave
+the boxes empty and let DVBFixer fall back to SEQRES from the input
+PDB.
+
 **Backend** (`server/api-plugin.ts`, a Vite middleware plugin):
 - `GET /api/dvbfixer-spec` — returns `COMMANDS` from `server/dvbfixer-spec.ts`.
-- `POST /api/dvbfixer/:command` — body `{ inputFile, values }`. Spawns the
-  CLI (env `DVBFIXER_CMD`, default `'dvbfixer'`; can be a multi-token command
-  like `'micromamba run -n tarantino dvbfixer'` — split on whitespace).
-  Output: `structures/dvb_<command>_<timestamp>/<input>_<command>.pdb`.
+- `POST /api/dvbfixer/:command` — body `{ inputFile, values, fastaContent? }`.
+  Spawns the CLI (env `DVBFIXER_CMD`, default `'dvbfixer'`; can be a multi-token
+  command like `'micromamba run -n tarantino dvbfixer'` — split on whitespace).
+  Output: `structures/dvb_<command>_<timestamp>/<input>_<command>.pdb`. When
+  `fastaContent` is non-empty (used by the model tab), it's written to
+  `<outDir>/<inputBase>.fasta` and `--fasta <abspath>` is injected into the
+  args (overriding any user-typed `--fasta` value).
   - **Success**: entry appended to `structures/index.json` with `parent`
     pointing to the input file → library renders parent → child.
   - **Failure** (non-zero exit): output folder moved to
@@ -870,7 +904,7 @@ src/
   index.css, molstar-theme.scss # FlexLayout vars + Mol* SCSS skin
 
   components/
-    MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes gated on autoOrientOnLoad)
+    MolstarViewer.tsx           # Mol* init per slot, color theme registration, post-load (hide water, ions→spacefill, OrientAxes gated on autoOrientOnLoad). Cleanup on tab close: dispose plugin AND clear store's fileName/secondaryFileName + chains for that slot so the Library's A/B chip disappears.
     SequenceViewer.tsx          # Monospace residue grid, drag-select, missing-SEQRES gap rendering, validated chain init, Structure/Sequence numbering toggle
     StructureLibrary.tsx        # Tree of folders + structures, drag-drop reorder + cross-folder move (@dnd-kit), starring, A/B slot toggle, descendant-starred hint chip
     StructureInfo.tsx           # Stats summary at top, metadata (Name + IgG Subtype + Allotype) + Notes, EquivalentChainsSection (auto-detect via NW + trimmed identity, manual override persisted in index.json)

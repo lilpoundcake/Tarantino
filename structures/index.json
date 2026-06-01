@@ -124,7 +124,8 @@
       "fld_1780017686547_jhnfp2",
       "FcgRIIb.pdb",
       "fld_1780017313525_t820az",
-      "FcgRIIIb.pdb"
+      "FcgRIIIb.pdb",
+      "3sgk.pdb"
     ]
   },
   {
@@ -269,5 +270,30 @@
     "resolution": "",
     "iggSubtype": "IgG1",
     "allotype": "G1m17,1"
+  },
+  {
+    "id": "3sgk",
+    "kind": "structure",
+    "file": "3sgk.pdb",
+    "name": "3sgk",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "Auto-detected from structures/ folder"
+  },
+  {
+    "id": "dvb_model_2026-06-01T09-56-22/3sgk_model.pdb",
+    "file": "dvb_model_2026-06-01T09-56-22/3sgk_model.pdb",
+    "name": "3sgk → model",
+    "parent": "3sgk.pdb",
+    "command": "model",
+    "organism": "",
+    "chains": 0,
+    "residues": 0,
+    "description": "DVBFixer model · 01.06.2026, 12:59:02",
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "",
+    "allotype": ""
   }
 ]
