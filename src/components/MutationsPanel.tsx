@@ -15,21 +15,42 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import {
   DataGrid,
+  GridRow,
   useGridApiContext,
   type GridColDef,
   type GridRenderCellParams,
   type GridRenderEditCellParams,
   type GridRowModel,
+  type GridRowProps,
   type GridRowsProp,
 } from '@mui/x-data-grid'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+  SortableContext,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 interface Mutation {
   id: number
   chain: string
   mutation_name: string
   mutations: string
+  /** Persisted row ordering. Lower = higher in list. */
+  display_order: number
   /** Comma-separated subclasses, e.g. "IgG1,IgG4". Empty string when none. */
   igg_subclass: string
+  /** Free-form notes / annotations (effect, source paper, etc.). */
+  properties: string
 }
 
 const IGG_SUBCLASSES = ['IgG1', 'IgG2', 'IgG3', 'IgG4']
@@ -113,6 +134,36 @@ function SubclassEditCell(params: GridRenderEditCellParams) {
   )
 }
 
+/**
+ * Custom DataGrid row that registers as a `useSortable` item. Wraps
+ * Mol*'s built-in `GridRow` (so we preserve every native DataGrid
+ * behavior: virtualization, cell editing, classNames, etc.) and
+ * attaches drag-listener props from @dnd-kit.
+ *
+ * Activation requires an 8px drag — single clicks pass through to
+ * DataGrid normally (so cell-edit double-clicks aren't hijacked).
+ */
+function SortableRow(props: GridRowProps) {
+  const sortable = useSortable({ id: props.rowId })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+    // The transform Layer must sit ABOVE adjacent rows during drag so
+    // the moving row visually floats over its destination.
+    zIndex: sortable.isDragging ? 1 : undefined,
+    opacity: sortable.isDragging ? 0.6 : 1,
+  }
+  return (
+    <GridRow
+      ref={sortable.setNodeRef as any}
+      {...props}
+      {...sortable.attributes}
+      {...sortable.listeners}
+      style={{ ...(props as any).style, ...style }}
+    />
+  )
+}
+
 export function MutationsPanel() {
   const [rows, setRows] = useState<Mutation[]>([])
   const [loading, setLoading] = useState(true)
@@ -142,7 +193,7 @@ export function MutationsPanel() {
       const res = await fetch('/api/mutations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain: '', mutation_name: '', mutations: '', igg_subclass: '' }),
+        body: JSON.stringify({ chain: '', mutation_name: '', mutations: '', igg_subclass: '', properties: '' }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -177,6 +228,7 @@ export function MutationsPanel() {
     if (newRow.mutation_name !== oldRow.mutation_name) patch.mutation_name = newRow.mutation_name as string
     if (newRow.mutations !== oldRow.mutations) patch.mutations = newRow.mutations as string
     if (newRow.igg_subclass !== oldRow.igg_subclass) patch.igg_subclass = newRow.igg_subclass as string
+    if (newRow.properties !== oldRow.properties) patch.properties = newRow.properties as string
     if (Object.keys(patch).length === 0) return oldRow
     try {
       const res = await fetch(`/api/mutations/${id}`, {
@@ -195,6 +247,46 @@ export function MutationsPanel() {
       return oldRow
     }
   }, [])
+
+  /* ── Drag-drop row reordering ─────────────────────────────────── */
+  // PointerSensor only. We intentionally drop KeyboardSensor because
+  // useSortable.listeners would otherwise attach an onKeyDown to the
+  // whole row that intercepts Space / Enter to start a drag — when the
+  // user types Space inside an editable cell (e.g. Properties), the
+  // event bubbles to the row, dnd-kit calls preventDefault, and the
+  // space character is never inserted.
+  // 8px activation distance so single-clicks pass through to DataGrid
+  // (cell-edit double-clicks aren't hijacked).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  )
+
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = rows.findIndex(r => r.id === active.id)
+    const newIndex = rows.findIndex(r => r.id === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const next = arrayMove(rows, oldIndex, newIndex)
+    // Optimistic update — rows update immediately, server resyncs on
+    // success (or rolls back via setError on failure).
+    setRows(next)
+    try {
+      const res = await fetch('/api/mutations/reorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: next.map(r => r.id) }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
+    } catch (e: any) {
+      setError(e.message ?? String(e))
+      // Roll back on failure by refetching the canonical order.
+      refresh()
+    }
+  }, [rows, refresh])
 
   const columns: GridColDef[] = [
     { field: 'id', headerName: 'ID', width: 70, type: 'number' },
@@ -221,10 +313,17 @@ export function MutationsPanel() {
     {
       field: 'mutations',
       headerName: 'Mutations',
-      flex: 1,
-      minWidth: 240,
+      width: 240,
       editable: true,
       description: 'Comma-separated list, e.g. M252Y,S254T,T256E',
+    },
+    {
+      field: 'properties',
+      headerName: 'Properties',
+      flex: 1,
+      minWidth: 200,
+      editable: true,
+      description: 'Free-form notes about this mutation (effect, source paper, etc.)',
     },
     {
       field: 'actions',
@@ -246,8 +345,18 @@ export function MutationsPanel() {
   const gridRows: GridRowsProp = rows
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      {/* Fixed-at-top header. It's a flex *sibling* of the scroll region
+       *  below; the DataGrid handles its own scroll, so the header stays
+       *  visible without needing position: sticky. flexShrink: 0 makes
+       *  sure it doesn't get squeezed when rows are added. */}
+      <Box sx={{
+        px: 1.5, py: 1,
+        borderBottom: 1, borderColor: 'divider',
+        display: 'flex', alignItems: 'center', gap: 1,
+        flexShrink: 0,
+        bgcolor: 'background.paper',
+      }}>
         <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mr: 'auto' }}>
           Mutations
         </Typography>
@@ -271,33 +380,68 @@ export function MutationsPanel() {
         </Alert>
       )}
 
-      <Box sx={{ flex: 1, p: 1 }}>
-        <DataGrid
-          rows={gridRows}
-          columns={columns}
-          loading={loading}
-          processRowUpdate={processRowUpdate}
-          density="compact"
-          disableRowSelectionOnClick
-          // Zebra striping — give every other row a slightly tinted
-          // background so it's easier to track values across wide rows.
-          // `:nth-of-type(odd)` is stable against MUI's virtualisation
-          // because each rendered row is a direct child of the same
-          // virtual-scroller render zone.
-          getRowClassName={(params) =>
-            params.indexRelativeToCurrentPage % 2 === 0 ? 'tarantino-row-even' : 'tarantino-row-odd'
-          }
-          sx={{
-            fontSize: '0.75rem',
-            '& .MuiDataGrid-columnHeader': { fontSize: '0.7rem', fontWeight: 700 },
-            // Slightly lighter tint on alternating rows. Using the
-            // primary color at very low alpha so it picks up the theme
-            // automatically. Keep hover override clearly stronger so
-            // the user can still see the active row.
-            '& .tarantino-row-odd': { backgroundColor: 'rgba(74, 118, 196, 0.04)' },
-            '& .MuiDataGrid-row:hover': { backgroundColor: 'rgba(74, 118, 196, 0.10)' },
-          }}
-        />
+      <Box sx={{ flex: 1, minHeight: 0, p: 1 }}>
+        {/* Drag-drop reordering. SortableContext.items = ordered list of
+         *  row ids; slots.row replaces the native row with a
+         *  useSortable-wired version. 8px activation distance lets
+         *  single clicks pass through to DataGrid's cell-edit
+         *  machinery. */}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={rows.map(r => r.id)} strategy={verticalListSortingStrategy}>
+            <DataGrid
+              rows={gridRows}
+              columns={columns}
+              loading={loading}
+              processRowUpdate={processRowUpdate}
+              density="compact"
+              disableRowSelectionOnClick
+              slots={{ row: SortableRow }}
+              // Don't sort by clicking column headers — would conflict
+              // with the persisted drag-drop ordering. Manual reorder
+              // is the only sort mechanism.
+              disableColumnSorting
+              // Zebra striping.
+              getRowClassName={(params) =>
+                params.indexRelativeToCurrentPage % 2 === 0 ? 'tarantino-row-even' : 'tarantino-row-odd'
+              }
+              sx={{
+                fontSize: '0.75rem',
+                '& .MuiDataGrid-columnHeader': { fontSize: '0.7rem', fontWeight: 700 },
+                '& .tarantino-row-odd': { backgroundColor: 'rgba(74, 118, 196, 0.04)' },
+                '& .MuiDataGrid-row': { cursor: 'grab' },
+                '& .MuiDataGrid-row:hover': { backgroundColor: 'rgba(74, 118, 196, 0.10)' },
+                '& .MuiDataGrid-row:active': { cursor: 'grabbing' },
+                // Halve the "Rows per page" footer height. MUI's default
+                // toolbar/footer is ~52px; we squeeze its minHeight and
+                // tighten internal padding + font size so the pagination
+                // controls don't dominate the panel.
+                '& .MuiDataGrid-footerContainer': {
+                  minHeight: 26,
+                },
+                '& .MuiTablePagination-root': {
+                  minHeight: 26,
+                  fontSize: '0.7rem',
+                },
+                '& .MuiTablePagination-toolbar': {
+                  minHeight: 26,
+                  py: 0,
+                  pl: 1,
+                },
+                '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
+                  fontSize: '0.7rem',
+                  m: 0,
+                },
+                '& .MuiTablePagination-select': {
+                  fontSize: '0.7rem',
+                  py: 0,
+                },
+                '& .MuiTablePagination-actions .MuiIconButton-root': {
+                  padding: 0.25,
+                },
+              }}
+            />
+          </SortableContext>
+        </DndContext>
       </Box>
     </Box>
   )

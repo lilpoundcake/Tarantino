@@ -52,6 +52,11 @@ export interface PipelineInput {
   mutationIds: number[]
   /** chain-type ('HC' / 'LC') → real chain ids (e.g. ['H','I']). */
   equivalentChainsMap: Record<string, string[]>
+  /** Optional per-mutation-id override of target chains. When set for a
+   *  mutation id, the equivalent-chains expansion is BYPASSED for that
+   *  row — only the listed chains receive the mutation. Used by the AE
+   *  panel when a Mutations DB row has an empty `chain` field. */
+  manualChainsByMutationId?: Record<number, string[]>
   hasGlycan: boolean
   scheme: 'EU' | 'Kabat'
   checksum: string
@@ -99,13 +104,21 @@ export function parseMutationToken(tok: string): ParsedMutation | null {
 export function expandMutations(
   rows: MutationRow[],
   equivMap: Record<string, string[]>,
+  manualMap: Record<number, string[]> = {},
 ): string[] {
   const out: string[] = []
   for (const row of rows) {
     const tokens = row.mutations.split(',').map(t => t.trim()).filter(Boolean)
-    const targetChains = equivMap[row.chain] ?? [row.chain]
+    // Resolve target chains. Precedence: manual override > equivalent-chains
+    // expansion > raw row.chain. The manual override BYPASSES equivalence
+    // expansion — used by the AE panel when a Mutations DB row has an
+    // empty `chain` field and the user picks chains themselves.
+    const manual = manualMap[row.id]
+    const targetChains = (manual && manual.length > 0)
+      ? manual
+      : (equivMap[row.chain] ?? (row.chain ? [row.chain] : []))
     if (targetChains.length === 0) {
-      throw new Error(`No chains resolved for mutation row #${row.id} (chain='${row.chain}'). Provide equivalentChainsMap.${row.chain}.`)
+      throw new Error(`No chains resolved for mutation row #${row.id} (chain='${row.chain}'). Provide equivalentChainsMap.${row.chain} or a manualChainsByMutationId entry.`)
     }
     for (const tok of tokens) {
       const p = parseMutationToken(tok)
@@ -276,7 +289,7 @@ export async function runEngineerPipeline(p: PipelineInput): Promise<void> {
   // surface it as a synthetic step-0 error BEFORE running the CLI.
   let mutateArgs: string[]
   try {
-    mutateArgs = expandMutations(p.mutationRows, p.equivalentChainsMap)
+    mutateArgs = expandMutations(p.mutationRows, p.equivalentChainsMap, p.manualChainsByMutationId)
     validateNoDuplicateTargets(mutateArgs)
   } catch (err: any) {
     p.onEvent({ step: 0, total: 0, name: 'validate', status: 'error', stderr: err.message ?? String(err) })

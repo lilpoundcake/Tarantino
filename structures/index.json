@@ -187,8 +187,8 @@
     "starred": false,
     "method": "",
     "resolution": "",
-    "iggSubtype": "",
-    "allotype": ""
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
   },
   {
     "id": "dvb_convert_2026-05-29T02-19-15/FcRn_convert.pdb",
@@ -200,7 +200,11 @@
     "chains": 0,
     "residues": 0,
     "description": "DVBFixer convert · 29.05.2026, 05:19:16",
-    "starred": true
+    "starred": true,
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
   },
   {
     "id": "dvb_convert_2026-05-29T02-19-32/C1q_convert.pdb",
@@ -212,7 +216,11 @@
     "chains": 0,
     "residues": 0,
     "description": "DVBFixer convert · 29.05.2026, 05:19:32",
-    "starred": true
+    "starred": true,
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
   },
   {
     "id": "dvb_convert_2026-05-29T02-19-43/FcgRI_convert.pdb",
@@ -224,7 +232,11 @@
     "chains": 0,
     "residues": 0,
     "description": "DVBFixer convert · 29.05.2026, 05:19:43",
-    "starred": true
+    "starred": true,
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
   },
   {
     "id": "dvb_convert_2026-05-29T02-19-54/FcgRIIb_convert.pdb",
@@ -236,7 +248,11 @@
     "chains": 0,
     "residues": 0,
     "description": "DVBFixer convert · 29.05.2026, 05:19:54",
-    "starred": true
+    "starred": true,
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
   },
   {
     "id": "dvb_convert_2026-05-29T02-20-02/FcgRIIIb_convert.pdb",
@@ -248,6 +264,10 @@
     "chains": 0,
     "residues": 0,
     "description": "DVBFixer convert · 29.05.2026, 05:20:02",
-    "starred": true
+    "starred": true,
+    "method": "",
+    "resolution": "",
+    "iggSubtype": "IgG1",
+    "allotype": "G1m17,1"
   }
 ]

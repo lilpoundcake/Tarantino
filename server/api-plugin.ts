@@ -45,7 +45,7 @@ function mutationsBackupPath(): string {
 async function dumpMutationsToBackup(pg: PgClient) {
   try {
     const { rows } = await pg.query(
-      'SELECT id, chain, mutation_name, mutations, igg_subclass FROM mutations ORDER BY id ASC'
+      'SELECT id, chain, mutation_name, mutations, igg_subclass, properties, display_order FROM mutations ORDER BY display_order ASC, id ASC'
     )
     fs.writeFileSync(mutationsBackupPath(), JSON.stringify(rows, null, 2) + '\n')
   } catch (err) {
@@ -74,18 +74,24 @@ async function seedMutationsFromBackup(pg: PgClient) {
       mutation_name?: string
       mutations?: string
       igg_subclass?: string
+      properties?: string
+      display_order?: number
     }>
     if (!Array.isArray(data) || data.length === 0) return
-    for (const row of data) {
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      // Preserve the order in the JSON file: row at index i gets
+      // display_order i+1 if the JSON doesn't specify one explicitly.
+      const order = typeof row.display_order === 'number' ? row.display_order : i + 1
       if (row.id !== undefined) {
         await pg.query(
-          'INSERT INTO mutations (id, chain, mutation_name, mutations, igg_subclass) VALUES ($1, $2, $3, $4, $5)',
-          [row.id, row.chain ?? '', row.mutation_name ?? '', row.mutations ?? '', row.igg_subclass ?? '']
+          'INSERT INTO mutations (id, chain, mutation_name, mutations, igg_subclass, properties, display_order) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [row.id, row.chain ?? '', row.mutation_name ?? '', row.mutations ?? '', row.igg_subclass ?? '', row.properties ?? '', order]
         )
       } else {
         await pg.query(
-          'INSERT INTO mutations (chain, mutation_name, mutations, igg_subclass) VALUES ($1, $2, $3, $4)',
-          [row.chain ?? '', row.mutation_name ?? '', row.mutations ?? '', row.igg_subclass ?? '']
+          'INSERT INTO mutations (chain, mutation_name, mutations, igg_subclass, properties, display_order) VALUES ($1, $2, $3, $4, $5, $6)',
+          [row.chain ?? '', row.mutation_name ?? '', row.mutations ?? '', row.igg_subclass ?? '', row.properties ?? '', order]
         )
       }
     }
@@ -115,12 +121,25 @@ export async function getPg(): Promise<PgClient | null> {
         mutation_name TEXT NOT NULL,
         mutations TEXT NOT NULL,
         igg_subclass TEXT NOT NULL DEFAULT '',
+        properties TEXT NOT NULL DEFAULT '',
+        display_order INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `)
-    // Migrate older deployments whose table predates igg_subclass.
+    // Migrate older deployments whose table predates igg_subclass / display_order.
     await pool.query(
       `ALTER TABLE mutations ADD COLUMN IF NOT EXISTS igg_subclass TEXT NOT NULL DEFAULT ''`
+    )
+    await pool.query(
+      `ALTER TABLE mutations ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0`
+    )
+    await pool.query(
+      `ALTER TABLE mutations ADD COLUMN IF NOT EXISTS properties TEXT NOT NULL DEFAULT ''`
+    )
+    // Seed display_order from id where it's still 0 (e.g. just-added column).
+    // Preserves the existing visible order.
+    await pool.query(
+      `UPDATE mutations SET display_order = id WHERE display_order = 0`
     )
     pgPool = pool as unknown as PgClient
     // Seed from the git-tracked backup file if the table is empty.
@@ -359,19 +378,48 @@ export function apiPlugin(): Plugin {
           const idMatch = pathOnly.match(/^\/(\d+)$/)
           const id = idMatch ? parseInt(idMatch[1], 10) : null
 
+          // PATCH /api/mutations/reorder — atomic reorder via full id list.
+          // Frontend computes the new sequence via @dnd-kit's arrayMove and
+          // POSTs the entire ordered id array; backend rewrites every row's
+          // display_order in one transaction.
+          if (pathOnly === '/reorder' && (req.method === 'PATCH' || req.method === 'POST')) {
+            const body = JSON.parse(await readBody(req) || '{}') as { ids?: number[] }
+            if (!Array.isArray(body.ids)) return sendJson(res, 400, { error: 'ids[] required' })
+            // Single UPDATE ... FROM (VALUES …) is the simplest transactional
+            // form. Postgres-specific; pg client allows multi-statement.
+            // Using a CTE keeps it readable.
+            const values: any[] = []
+            const tuples: string[] = body.ids.map((rowId, i) => {
+              values.push(rowId, i + 1)
+              return `($${values.length - 1}::int, $${values.length}::int)`
+            })
+            if (tuples.length === 0) return sendJson(res, 200, { ok: true })
+            await pg.query(
+              `UPDATE mutations SET display_order = v.new_order
+               FROM (VALUES ${tuples.join(', ')}) AS v(id, new_order)
+               WHERE mutations.id = v.id`,
+              values
+            )
+            await dumpMutationsToBackup(pg)
+            return sendJson(res, 200, { ok: true })
+          }
+
           if (req.method === 'GET' && !id) {
             const { rows } = await pg.query(
-              'SELECT id, chain, mutation_name, mutations, igg_subclass FROM mutations ORDER BY id ASC'
+              'SELECT id, chain, mutation_name, mutations, igg_subclass, properties, display_order FROM mutations ORDER BY display_order ASC, id ASC'
             )
             return sendJson(res, 200, rows)
           }
 
           if (req.method === 'POST' && !id) {
             const body = JSON.parse(await readBody(req) || '{}')
-            const { chain = '', mutation_name = '', mutations = '', igg_subclass = '' } = body
+            const { chain = '', mutation_name = '', mutations = '', igg_subclass = '', properties = '' } = body
+            // New row goes to the bottom of the list: display_order = max+1.
             const { rows } = await pg.query(
-              'INSERT INTO mutations (chain, mutation_name, mutations, igg_subclass) VALUES ($1, $2, $3, $4) RETURNING id, chain, mutation_name, mutations, igg_subclass',
-              [chain, mutation_name, mutations, igg_subclass]
+              `INSERT INTO mutations (chain, mutation_name, mutations, igg_subclass, properties, display_order)
+               VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(display_order) + 1 FROM mutations), 1))
+               RETURNING id, chain, mutation_name, mutations, igg_subclass, properties, display_order`,
+              [chain, mutation_name, mutations, igg_subclass, properties]
             )
             await dumpMutationsToBackup(pg)
             return sendJson(res, 201, rows[0])
@@ -379,10 +427,17 @@ export function apiPlugin(): Plugin {
 
           if (req.method === 'PUT' && id) {
             const body = JSON.parse(await readBody(req) || '{}')
-            const { chain, mutation_name, mutations, igg_subclass } = body
+            const { chain, mutation_name, mutations, igg_subclass, properties } = body
             const { rows } = await pg.query(
-              'UPDATE mutations SET chain = COALESCE($2, chain), mutation_name = COALESCE($3, mutation_name), mutations = COALESCE($4, mutations), igg_subclass = COALESCE($5, igg_subclass) WHERE id = $1 RETURNING id, chain, mutation_name, mutations, igg_subclass',
-              [id, chain, mutation_name, mutations, igg_subclass]
+              `UPDATE mutations SET
+                 chain = COALESCE($2, chain),
+                 mutation_name = COALESCE($3, mutation_name),
+                 mutations = COALESCE($4, mutations),
+                 igg_subclass = COALESCE($5, igg_subclass),
+                 properties = COALESCE($6, properties)
+               WHERE id = $1
+               RETURNING id, chain, mutation_name, mutations, igg_subclass, properties, display_order`,
+              [id, chain, mutation_name, mutations, igg_subclass, properties]
             )
             await dumpMutationsToBackup(pg)
             return sendJson(res, 200, rows[0])
@@ -728,6 +783,11 @@ export function apiPlugin(): Plugin {
             inputFile?: string
             mutationIds?: number[]
             equivalentChainsMap?: Record<string, string[]>
+            /** Per-mutation-id override of target chains; bypasses
+             *  equivalent-chains expansion for that row. Used by the AE
+             *  panel when a Mutations DB row has an empty `chain`
+             *  field. */
+            manualChainsByMutationId?: Record<number, string[]>
             hasGlycan?: boolean
             scheme?: 'EU' | 'Kabat'
           }
@@ -794,6 +854,7 @@ export function apiPlugin(): Plugin {
             mutationRows: rows as any,
             mutationIds: body.mutationIds,
             equivalentChainsMap: body.equivalentChainsMap ?? {},
+            manualChainsByMutationId: body.manualChainsByMutationId ?? {},
             hasGlycan: body.hasGlycan,
             scheme: body.scheme,
             checksum,

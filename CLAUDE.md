@@ -53,9 +53,10 @@ a dockable multi-panel workspace:
   per-step progress to a `LinearProgress`. Dedup: same `(input, mutations,
   glycan, scheme)` combo skips re-running and loads the cached output.
 - **Mutations**: PostgreSQL-backed editable DataGrid (igg_subclass / chain /
-  mutation_name / mutations) with multi-select IgG-subclass tagging and
-  HC/LC chain dropdown; auto-mirrored to a git-tracked `mutations.json`
-  backup at repo root
+  mutation_name / mutations / properties) with multi-select IgG-subclass
+  tagging, HC/LC chain dropdown, free-form Properties notes column, and
+  drag-drop row reordering (persisted via `display_order`). Auto-mirrored
+  to a git-tracked `mutations.json` backup at repo root.
 - **Library**: hierarchical tree of pre-loaded structures with starring
 - **Info**: stats summary at the top, single-field metadata (Name + Notes),
   and an **Equivalent chains** section that auto-groups multimeric copies
@@ -529,7 +530,7 @@ active structure. Failures leave the viewer untouched.
   `mutations` table; auto-creates the table on first connection. Returns 503
   if `DATABASE_URL` is unset.
 - `POST /api/antibody-engineer/run` — **SSE** endpoint. Body `{ inputFile,
-  mutationIds: number[], equivalentChainsMap?, hasGlycan: boolean, scheme:
+  mutationIds: number[], equivalentChainsMap?, manualChainsByMutationId?, hasGlycan: boolean, scheme:
   'EU'|'Kabat' }`. Streams `data: <JSON>\n\n` events. See the dedicated
   Antibody Engineer architecture section above.
 - `POST /api/library/star { file }` — toggles `starred` flag in `index.json` (one starred per family).
@@ -573,12 +574,42 @@ active structure. Failures leave the viewer untouched.
 - `mutation_name` — free-form text
 - `mutations` — comma-separated list of point mutations, e.g.
   `'M252Y,S254T,T256E'`
+- `properties` — free-form notes / annotations (effect, source paper, etc.)
 
 Inline cell editing via `processRowUpdate` → `PUT /api/mutations/:id`. If
 the API returns 503 the panel renders a config hint pointing at
 `DATABASE_URL`. Rows are zebra-striped via `getRowClassName` +
 `rgba(74,118,196,0.04)` for odd rows so values stay easy to track across
-wide rows; hover bumps to `0.10` alpha.
+wide rows; hover bumps to `0.10` alpha. The pagination footer is
+compressed (`MuiDataGrid-footerContainer`, `MuiTablePagination-toolbar`
+`minHeight: 26`) so it doesn't take half the panel.
+
+**Layout**. Outer Box: `height: 100%`, `display: flex`,
+`flexDirection: 'column'`, **`overflow: 'hidden'`**, **`minHeight: 0`**.
+Header bar: `flexShrink: 0` so it never collapses (it's static — no
+`position: sticky` because there's no scrollable ancestor; the grid
+scrolls internally and the header stays as a flex sibling above it).
+DataGrid wrapper: `flex: 1`, **`minHeight: 0`** so the flex:1 child
+doesn't default to content height and push the panel beyond its
+parent. The combo of these is what makes both header-stays-visible AND
+grid-scroll-works.
+
+**Drag-drop row reordering** (`@dnd-kit/core` + `@dnd-kit/sortable`):
+`DndContext` + `SortableContext` wrap the DataGrid. `slots.row` is
+overridden by `SortableRow`, which wraps Mol*'s exported `GridRow` with
+`useSortable` (setNodeRef + attributes + listeners on the row). The
+sensors include `PointerSensor` only — **NOT `KeyboardSensor`**,
+because dnd-kit's `useSortable.listeners` would otherwise attach an
+`onKeyDown` Space/Enter handler to the row that intercepts space-bar
+presses inside editable cells (e.g. Properties) and calls
+`preventDefault`, so the user's space never reaches the input.
+Activation distance `8px` so single clicks pass through to cell-edit.
+`disableColumnSorting` on DataGrid: column-header sorts would fight
+the persisted drag order. `cursor: 'grab' / 'grabbing'` on rows.
+
+`handleDragEnd` does an optimistic `arrayMove` locally, then PATCHes
+`/api/mutations/reorder` with the full id list; rolls back via
+`refresh()` on failure.
 
 Backend uses a lazy `pg.Pool` keyed off `DATABASE_URL`. `docker-compose.yml`
 ships `postgres:16-alpine` as service `db` (port 5432, volume
@@ -597,9 +628,23 @@ into git:
   its `id`**, and `mutations_id_seq` is bumped past the max id so
   future auto-ids don't collide. Subsequent runs find the table
   non-empty and skip.
-- Schema migration for older deployments: `ALTER TABLE mutations ADD
-  COLUMN IF NOT EXISTS igg_subclass TEXT NOT NULL DEFAULT ''` runs
-  alongside the `CREATE TABLE IF NOT EXISTS` on every boot.
+- Schema migrations for older deployments run on every boot:
+  - `ADD COLUMN IF NOT EXISTS igg_subclass TEXT NOT NULL DEFAULT ''`
+  - `ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0`
+    + `UPDATE mutations SET display_order = id WHERE display_order = 0`
+    (preserves existing visible order)
+  - `ADD COLUMN IF NOT EXISTS properties TEXT NOT NULL DEFAULT ''`
+
+Routes:
+- `GET /api/mutations` — `ORDER BY display_order ASC, id ASC`
+- `POST /api/mutations` — new row gets `display_order = MAX + 1` (lands
+  at the bottom)
+- `PUT /api/mutations/:id` — patches whitelisted fields including
+  `properties`
+- `DELETE /api/mutations/:id`
+- `PATCH /api/mutations/reorder { ids: number[] }` — atomic
+  `UPDATE … FROM (VALUES …)` that rewrites every row's `display_order`
+  in one transaction. Called by the DataGrid drag-drop handler.
 
 `scripts/set-modeller-key.sh` finds `<env>/lib/modeller-*/modlib/modeller/config.py`
 inside the active conda/micromamba env (or the prefix passed as `$1`) and writes
@@ -639,11 +684,15 @@ subclasses with hinge-length gaps that can't be indexed by simple offset.
   emit `'H:322:ALA'` / `'H:446:del'` formatted CLI args.
 
 **Pipeline orchestrator** (`server/antibody-pipeline.ts`):
-- `expandMutations(rows, equivChainsMap)` parses each row's
-  comma-separated `mutations` field, fans every token out across all
-  chains in the matching equivalent-chain bucket (`HC: ['H','I']` →
-  emits both `H:322:ALA` and `I:322:ALA`). 1-letter → 3-letter codes via
-  the local `AA1_TO_AA3` map. `del` is forwarded verbatim.
+- `expandMutations(rows, equivChainsMap, manualMap?)` parses each row's
+  comma-separated `mutations` field and emits one `--mutate` arg per
+  (target chain, token). Target chain resolution **precedence**:
+  `manualMap[row.id]` (if non-empty) → `equivChainsMap[row.chain]` →
+  `[row.chain]` (legacy fallback). The manual override bypasses
+  equivalent-chain fan-out and lets the AE panel handle rows whose DB
+  `chain` field is empty (user picks chains manually in the UI). 1-letter
+  → 3-letter codes via the local `AA1_TO_AA3` map. `del` is forwarded
+  verbatim.
 - `validateNoDuplicateTargets(args)` — server-side defensive check; the
   frontend already blocks this case.
 - `pipelineSteps(scheme, hasGlycan, mutateArgs)` produces the 7-step
@@ -700,11 +749,11 @@ lookup before dispatching to `runEngineerPipeline`.
   'branched'` OR any of `NAG/BMA/MAN/FUC/GAL/SIA/GLC/XYL`).
 - **Mutations** — fetches `/api/mutations`, filters rows by detected IgG
   subclass (empty `igg_subclass` = universal, applies to every
-  structure). Live validation `useMemo` over `(checked, allRows,
-  equivalentChainsMap, detections, chains)` tags each issue with a
+  structure). Live validation `useMemo` tags each issue with a
   `severity: 'error' | 'warning'`:
-  - `'no-target-chain'` (no detected HC/LC for the row's chain type)
-    → **error**, blocks Run.
+  - `'no-target-chain'` — for empty-chain rows, message is *"Row has
+    no chain set — pick one or more chains manually."*; for normal
+    rows it's *"No HC chains detected …"*. **Error**, blocks Run.
   - `'conflict'` (two checked rows both target the same `(chainId,
     position)`) → **error**, blocks Run.
   - `'out-of-range'` (target EU position not in this fragment per
@@ -712,10 +761,32 @@ lookup before dispatching to `runEngineerPipeline`.
     versions silently skip missing residues, so we let the user
     proceed and only flag it with an amber chip + tooltip.
   Only `severity === 'error'` issues disable the Run button
-  (`hasBlockingIssues`). Below the list, a row of chips shows
-  `equivalentChainsMap` (e.g. `HC: H, I` / `LC: A, C`) and the
-  `previewMutateArgs` count with a tooltip listing the literal
-  `--mutate H:322:ALA …` args.
+  (`hasBlockingIssues`).
+
+  **Per-row manual chain picker for empty-chain DB rows**. When
+  `row.chain` is empty / unset, the row UI shows a compact MUI
+  `Select multiple` next to the checkbox; options are every detected
+  antibody chain id (`detections.map(d => d.chainId)`). Picks are
+  stored in component state as `manualChainsByMutationId: Record<id,
+  string[]>`. The per-row chain resolver:
+  ```
+  resolveTargetChains(row):
+    if manualChainsByMutationId[row.id]?.length > 0 → those chains
+    else                                            → equivalentChainsMap[row.chain]
+  ```
+  Manual picks **bypass equivalent-chains fan-out** — the mutation
+  goes only to the chains the user selected. Both `validationIssues`
+  and `previewMutateArgs` go through `resolveTargetChains`. Submit
+  body carries `manualChainsByMutationId` (filtered to checked rows
+  with non-empty picks). Backend uses it via `expandMutations`'s
+  `manualMap` arg (see pipeline orchestrator above).
+
+  Below the list a row of chips shows the resolved chain expansion:
+  one outlined chip per equivalent-chain bucket that's actually used
+  by a non-overridden checked row, PLUS one warning-colored chip per
+  manual-override row showing `mutation_name: <picked chains>`. The
+  `previewMutateArgs` tooltip lists the literal `--mutate H:322:ALA …`
+  strings.
 - **Pipeline** — numbering-scheme `ToggleButtonGroup` (EU / Kabat,
   pinned at the top of the section), glycan-handling `RadioGroup`
   (auto / force-with / force-without), monospace preview of the step
@@ -807,7 +878,7 @@ src/
     InteractionsPanel.tsx       # Computed contacts, focused-chain banner
     AlignmentPanel.tsx          # Pairwise NW alignment, per-source plugin routing
     DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
-    MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, zebra rows
+    MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, free-form Properties column, drag-drop row reorder via @dnd-kit (SortableRow slot.row override, PointerSensor only, atomic PATCH /api/mutations/reorder), zebra rows, compressed pagination footer
     AntibodyEngineerPanel.tsx   # End-to-end mutate-by-DB-row tool: chain detection, severity-tagged validation (out-of-range = warning, non-blocking), SSE-driven progress, auto-load output
     SettingsPanel.tsx           # App-wide preferences (auto-orient-on-load, Alignment source-label mode); all localStorage-persisted
     FileLoader.tsx              # Upload button (honors loadTargetSlot)

@@ -9,6 +9,7 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
+import ListItemText from '@mui/material/ListItemText'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
 import ToggleButton from '@mui/material/ToggleButton'
@@ -183,6 +184,43 @@ export function AntibodyEngineerPanel() {
       .catch(() => {})
   }, [])
 
+  /* ── Manual chain picks for rows without a chain field ────────────── */
+  // When a Mutations DB row has an empty `chain`, the user picks target
+  // chains here. Manual picks BYPASS equivalentChainsMap expansion — the
+  // mutation is applied only to the chains in this list. Keyed by row.id.
+  const [manualChainsByMutationId, setManualChainsByMutationId] =
+    useState<Record<number, string[]>>({})
+
+  const allDetectedChainIds = useMemo(
+    () => detections.map(d => d.chainId),
+    [detections]
+  )
+
+  const isUnsetChain = (row: MutationRow): boolean => {
+    const c = (row.chain || '').trim()
+    return c === ''
+  }
+
+  /** Effective target chains for a row.
+   *  Precedence: manual override > equivalentChainsMap[row.chain]. */
+  const resolveTargetChains = useCallback((row: MutationRow): string[] => {
+    const manual = manualChainsByMutationId[row.id]
+    if (manual && manual.length > 0) return manual
+    return equivalentChainsMap[row.chain] ?? []
+  }, [manualChainsByMutationId, equivalentChainsMap])
+
+  const setManualChainsForRow = useCallback((rowId: number, chains: string[]) => {
+    setManualChainsByMutationId(prev => {
+      if (chains.length === 0) {
+        if (!(rowId in prev)) return prev
+        const next = { ...prev }
+        delete next[rowId]
+        return next
+      }
+      return { ...prev, [rowId]: chains }
+    })
+  }, [])
+
   const filteredRows = useMemo(() => {
     if (detectedSubclasses.size === 0) {
       // No detection yet — show universal rows only.
@@ -212,9 +250,12 @@ export function AntibodyEngineerPanel() {
     for (const id of checked) {
       const row = allRows.find(r => r.id === id)
       if (!row) continue
-      const targetChains = equivalentChainsMap[row.chain] ?? []
+      const targetChains = resolveTargetChains(row)
       if (targetChains.length === 0) {
-        issues.push({ rowId: id, kind: 'no-target-chain', severity: 'error', message: `No ${row.chain} chains detected in the loaded structure.` })
+        const msg = isUnsetChain(row)
+          ? 'Row has no chain set — pick one or more chains manually.'
+          : `No ${row.chain} chains detected in the loaded structure.`
+        issues.push({ rowId: id, kind: 'no-target-chain', severity: 'error', message: msg })
         continue
       }
       const tokens = row.mutations.split(',').map(t => t.trim()).filter(Boolean)
@@ -244,7 +285,7 @@ export function AntibodyEngineerPanel() {
       }
     }
     return issues
-  }, [checked, allRows, equivalentChainsMap, detections, chains])
+  }, [checked, allRows, resolveTargetChains, detections, chains])
 
   const issuesByRow = useMemo(() => {
     const m = new Map<number, ValidationIssue[]>()
@@ -266,7 +307,7 @@ export function AntibodyEngineerPanel() {
     for (const id of checked) {
       const row = allRows.find(r => r.id === id)
       if (!row) continue
-      const targetChains = equivalentChainsMap[row.chain] ?? []
+      const targetChains = resolveTargetChains(row)
       const tokens = row.mutations.split(',').map(t => t.trim()).filter(Boolean)
       for (const tok of tokens) {
         const p = parseMutation(tok)
@@ -277,7 +318,7 @@ export function AntibodyEngineerPanel() {
       }
     }
     return out
-  }, [checked, allRows, equivalentChainsMap])
+  }, [checked, allRows, resolveTargetChains])
 
   /* ── Run + SSE handler ───────────────────────────────────────────── */
   const [phase, setPhase] = useState<Phase>('idle')
@@ -308,6 +349,14 @@ export function AntibodyEngineerPanel() {
           inputFile,
           mutationIds: Array.from(checked).sort((a, b) => a - b),
           equivalentChainsMap,
+          // Per-row chain overrides (rows whose `chain` field is empty).
+          // Only include checked rows that have non-empty manual picks —
+          // keeps the request body tight and prevents stale entries from
+          // earlier sessions polluting the run.
+          manualChainsByMutationId: Object.fromEntries(
+            Object.entries(manualChainsByMutationId)
+              .filter(([id, chs]) => checked.has(Number(id)) && chs.length > 0)
+          ),
           hasGlycan: effectiveHasGlycan,
           scheme,
         }),
@@ -447,11 +496,13 @@ export function AntibodyEngineerPanel() {
             {filteredRows.map(row => {
               const rowIssues = issuesByRow.get(row.id) ?? []
               const isChecked = checked.has(row.id)
+              const unsetChain = isUnsetChain(row)
+              const manualPicks = manualChainsByMutationId[row.id] ?? []
               return (
                 <Box key={row.id} sx={{ display: 'flex', alignItems: 'center', py: 0.25, gap: 0.5 }}>
                   <Tooltip placement="right" title={
                     <Box sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                      {row.mutations} ({row.chain || 'chain ?'})
+                      {row.mutations} ({unsetChain ? 'chain unset — pick manually' : row.chain})
                       {row.igg_subclass && ` · ${row.igg_subclass}`}
                     </Box>
                   }>
@@ -471,6 +522,45 @@ export function AntibodyEngineerPanel() {
                       }
                     />
                   </Tooltip>
+
+                  {/* Manual chain picker for empty-chain rows. Bypasses
+                   *  equivalentChainsMap expansion — the mutation is applied
+                   *  ONLY to the chains the user selects here. */}
+                  {unsetChain && (
+                    <FormControl size="small" sx={{ minWidth: 110, maxWidth: 180 }}>
+                      <Select
+                        multiple
+                        displayEmpty
+                        value={manualPicks}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          const next = typeof v === 'string'
+                            ? v.split(',').filter(Boolean)
+                            : (v as string[])
+                          setManualChainsForRow(row.id, next)
+                        }}
+                        renderValue={(sel) => {
+                          const arr = sel as string[]
+                          if (arr.length === 0) return <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic', fontSize: '0.7rem' }}>pick chain…</Typography>
+                          return <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{arr.join(', ')}</Typography>
+                        }}
+                        sx={{ height: 26, fontSize: '0.7rem', '& .MuiSelect-select': { py: 0.25, pl: 0.75 } }}
+                      >
+                        {allDetectedChainIds.length === 0 && (
+                          <MenuItem disabled value="">
+                            <Typography variant="caption" sx={{ fontStyle: 'italic' }}>No antibody chains detected</Typography>
+                          </MenuItem>
+                        )}
+                        {allDetectedChainIds.map(id => (
+                          <MenuItem key={id} value={id} dense>
+                            <Checkbox checked={manualPicks.includes(id)} size="small" sx={{ p: 0.5 }} />
+                            <ListItemText primary={id} slotProps={{ primary: { sx: { fontSize: '0.75rem' } } }} />
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+
                   {rowIssues.map((iss, k) => (
                     <Tooltip key={k} title={iss.message}>
                       <Chip
@@ -495,15 +585,44 @@ export function AntibodyEngineerPanel() {
               Will be applied to:
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-              {Object.entries(equivalentChainsMap).map(([type, ids]) => (
-                <Chip
-                  key={type}
-                  label={`${type}: ${ids.join(', ')}`}
-                  size="small"
-                  variant="outlined"
-                  sx={{ fontSize: '0.65rem', height: 20 }}
-                />
-              ))}
+              {/* Show the equiv-chain buckets only for rows that ACTUALLY
+               *  use them (i.e. at least one checked row has a non-empty
+               *  chain that maps into this bucket and is NOT overridden by
+               *  manualChainsByMutationId). */}
+              {Object.entries(equivalentChainsMap)
+                .filter(([type]) => Array.from(checked).some(id => {
+                  const r = allRows.find(x => x.id === id)
+                  if (!r) return false
+                  if (isUnsetChain(r)) return false
+                  if ((manualChainsByMutationId[id]?.length ?? 0) > 0) return false
+                  return r.chain === type
+                }))
+                .map(([type, ids]) => (
+                  <Chip
+                    key={type}
+                    label={`${type}: ${ids.join(', ')}`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ fontSize: '0.65rem', height: 20 }}
+                  />
+                ))}
+              {/* Manual rows: one chip per row showing the user-picked chains. */}
+              {Array.from(checked).map(id => {
+                const r = allRows.find(x => x.id === id)
+                if (!r) return null
+                const manual = manualChainsByMutationId[id]
+                if (!manual || manual.length === 0) return null
+                return (
+                  <Chip
+                    key={`manual-${id}`}
+                    label={`${r.mutation_name}: ${manual.join(', ')}`}
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                    sx={{ fontSize: '0.65rem', height: 20 }}
+                  />
+                )
+              })}
             </Box>
             <Tooltip title={
               <Box sx={{ fontFamily: 'monospace', fontSize: '0.65rem', whiteSpace: 'pre-wrap' }}>
