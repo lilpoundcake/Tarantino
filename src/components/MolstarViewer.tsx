@@ -261,6 +261,13 @@ export function MolstarViewer({ slot = 'primary' }: MolstarViewerProps) { // @ds
         } else {
           setSecondaryChains([])
           setSecondaryFileName(null)
+          // Snap the Library's A/B toggle back to 'primary' so subsequent
+          // Library clicks don't try to load into the now-disposed
+          // secondary plugin (which would bail with "Open a '3D
+          // Structure (B)' tab first" and trap the user).
+          if (useStructureStore.getState().loadTargetSlot === 'secondary') {
+            useStructureStore.getState().setLoadTargetSlot('primary')
+          }
         }
       }
     }

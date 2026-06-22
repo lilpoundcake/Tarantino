@@ -125,6 +125,17 @@ elements / meta / Interactions.
 slot, the store's plugin/chains/fileName. Without the `fileName` clear,
 the Library's A/B chip would remain stuck on whichever structure was last
 loaded into that viewer even though the viewer no longer exists.
+Additionally, when the SECONDARY slot is torn down and
+`loadTargetSlot === 'secondary'`, the cleanup snaps it back to
+`'primary'` — otherwise the Library's A/B toggle would silently stay on
+B (its UI is gated on `secondaryPlugin`, so it disappears with the
+viewer), every subsequent Library click would bail out with *"Open a
+'3D Structure (B)' tab first"*, and the user would be trapped unable to
+load anything into A. `StructureLibrary` also runs a defensive
+`useEffect` watchdog over `(secondaryPlugin, loadTargetSlot)` that
+performs the same snap-back, as a belt-and-braces safety net for any
+code path that disposes the secondary plugin without going through
+`MolstarViewer`'s cleanup.
 
 Post-load, each viewer (a) hides the water component, (b) swaps the **ion**
 component's default ball-and-stick representation for `spacefill` so each ion

@@ -122,6 +122,19 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
   }, [])
   useEffect(() => { fetchIndex() }, [fetchIndex, libraryVersion])
 
+  // Defensive watchdog: if the secondary viewer disappears for any
+  // reason (tab closed, error, hot reload) while the A/B toggle is
+  // still on 'secondary', snap it back to 'primary'. Otherwise every
+  // Library click bails with "Open a '3D Structure (B)' tab first"
+  // since loadStructureRaw checks the resolved plugin. The
+  // MolstarViewer cleanup already handles the common case; this is a
+  // belt-and-braces safety net.
+  useEffect(() => {
+    if (!secondaryPlugin && loadTargetSlot === 'secondary') {
+      setLoadTargetSlot('primary')
+    }
+  }, [secondaryPlugin, loadTargetSlot, setLoadTargetSlot])
+
   /* ── Index ─────────────────────────────────────────────────────────── */
   // byId: id → entry
   // lineage: parentFile → child structures (default auto-nesting)
