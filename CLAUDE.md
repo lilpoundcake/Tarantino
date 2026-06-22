@@ -87,8 +87,9 @@ viewer (primary or secondary) holds that chain.
 `flexlayout-react` `Layout` + `Model` in `App.tsx`. Default layout (in the
 same tabset, the first tab is the active one):
 - Left column: Library, then (Info | **Settings**).
-- Right column (main viewer): (3D Structure | **DVBFixer**), with
-  (Sequence | **Alignment**) and (Elements | Interactions) tabsets below.
+- Right column (main viewer): (3D Structure | **DVBFixer** | **Antibody
+  Engineer** | **Mutations**), with (Sequence | **Alignment**) and
+  (Elements | Interactions) tabsets below.
 
 Every tabset has a "+" button (`onRenderTabSet`) that opens a MUI Menu
 listing: 3D Structure, 3D Structure (B), Sequence, Elements, Interactions,
@@ -481,6 +482,17 @@ without flipping the toggle. Selection / 3D sync continue to use the canonical
   `entry.equivalentChains` into `setMeta(...)` so manual overrides
   survive structure switches and page reloads.
 
+  It also resolves `allotype` and `iggSubtype` through
+  `inheritFromLineage(entries, entry, field)` — a small helper that
+  returns the entry's own value when set, otherwise walks the `parent`
+  chain (cycle-safe) until it finds the first non-empty value. This
+  read-time fallback complements the write-time inheritance in
+  `server/antibody-pipeline.ts` + the DVBFixer route: even older
+  entries (created before the inherit-at-write rule landed) and entries
+  produced by future tools that forget to propagate will still display
+  the right identity tags in the Info panel, as long as some ancestor
+  has them set.
+
 ### Alignment Panel (`src/components/AlignmentPanel.tsx`, `src/lib/alignment.ts`)
 
 `alignment.ts` is pure-TS Needleman-Wunsch with BLOSUM62 (alphabet
@@ -567,7 +579,9 @@ PDB.
   `<outDir>/<inputBase>.fasta` and `--fasta <abspath>` is injected into the
   args (overriding any user-typed `--fasta` value).
   - **Success**: entry appended to `structures/index.json` with `parent`
-    pointing to the input file → library renders parent → child.
+    pointing to the input file → library renders parent → child. The
+    new entry also inherits `allotype` and `iggSubtype` from the input
+    entry when those tags are set (write-time propagation).
   - **Failure** (non-zero exit): output folder moved to
     `structures/_dvb_failed/<subdir>` (underscore prefix → scanner skips it).
     Response includes `movedTo`.
@@ -754,7 +768,12 @@ subclasses with hinge-length gaps that can't be indexed by simple offset.
   `mutationIds: number[]`, `mutationsResolved: string`,
   `_engineerChecksum: string`, `hasGlycan: boolean`, `scheme: 'EU'|'Kabat'`,
   `command: 'antibody-engineer'`, and a generated `name` like
-  `"FcRn — YTE + LALA"`.
+  `"FcRn — YTE + LALA"`. Both intermediate and final entries also
+  **inherit antibody-identity tags** (`allotype`, `iggSubtype`) from
+  the entry referenced by the entry's `parent` field — these don't
+  change as a result of renumber / prepare / minimize / convert /
+  protonate, so carrying them forward by default saves the user from
+  re-entering them in the Info panel on every variant.
 - Failure: any non-zero exit code → emit error SSE event, move EVERY
   created output dir into `structures/_engineer_failed/<subdir>` (scanner
   ignores underscore-prefixed dirs), close stream without writing an

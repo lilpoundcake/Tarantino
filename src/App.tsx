@@ -105,6 +105,8 @@ const layoutJson: IJsonModel = {
             children: [
               { type: 'tab', name: '3D Structure', component: 'viewer' },
               { type: 'tab', name: 'DVBFixer', component: 'dvbfixer' },
+              { type: 'tab', name: 'Antibody Engineer', component: 'antibody-engineer' },
+              { type: 'tab', name: 'Mutations', component: 'mutations' },
             ],
           },
           {

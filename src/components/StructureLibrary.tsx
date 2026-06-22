@@ -80,6 +80,42 @@ function entryIdOf(e: AnyEntry): string {
   return isFolder(e) ? e.id : e.file
 }
 
+/**
+ * Walk up the lineage `parent` chain from `start` looking for the first
+ * non-empty value of `field`. Returns '' if nothing is found. Cycle-safe
+ * via a seen-set. Used to inherit antibody-identity tags (allotype,
+ * iggSubtype) so the Info panel shows the right value even on outputs
+ * whose own entry doesn't carry the field — useful for entries created
+ * before the inherit-at-write rule landed, or for any future tool that
+ * forgets to propagate the tags.
+ */
+function inheritFromLineage<K extends 'allotype' | 'iggSubtype'>(
+  allEntries: AnyEntry[],
+  start: StructureEntry,
+  field: K,
+): string {
+  const ownValue = (start as any)[field]
+  if (typeof ownValue === 'string' && ownValue.trim() !== '') return ownValue
+
+  const byFile = new Map<string, StructureEntry>()
+  for (const e of allEntries) {
+    if (!isFolder(e)) byFile.set(e.file, e)
+  }
+
+  const seen = new Set<string>([start.file])
+  let cursor: StructureEntry | undefined = start
+  while (cursor?.parent) {
+    if (seen.has(cursor.parent)) break       // cycle guard
+    seen.add(cursor.parent)
+    const parent = byFile.get(cursor.parent)
+    if (!parent) break
+    const v = (parent as any)[field]
+    if (typeof v === 'string' && v.trim() !== '') return v
+    cursor = parent
+  }
+  return ''
+}
+
 /* ────────────────────────────────────────────────────────────────────────
  * StructureLibrary
  * ──────────────────────────────────────────────────────────────────────── */
@@ -207,14 +243,22 @@ export function StructureLibrary(_props: { onClose?: () => void }) {
         setSecondaryFileName(entry.file)
       } else {
         setFileName(entry.file)
+        // Lineage inheritance for antibody-identity tags. If this entry
+        // doesn't have its own allotype / iggSubtype set, walk up the
+        // `parent` chain and use the first ancestor's value. So even
+        // when a child was created BEFORE the inherit-at-write fix (or
+        // by a tool that didn't carry the tags), the Info panel still
+        // shows the right value as long as some ancestor has it set.
+        const inheritedAllotype = inheritFromLineage(entries, entry, 'allotype')
+        const inheritedIggSubtype = inheritFromLineage(entries, entry, 'iggSubtype')
         setMeta({
           name: entry.name ?? '',
           organism: (entry as any).organism ?? '',
           method: (entry as any).method ?? '',
           resolution: (entry as any).resolution ?? '',
           description: entry.description ?? '',
-          iggSubtype: (entry as any).iggSubtype ?? '',
-          allotype: (entry as any).allotype ?? '',
+          iggSubtype: inheritedIggSubtype,
+          allotype: inheritedAllotype,
           equivalentChains: (entry as any).equivalentChains,
         })
       }

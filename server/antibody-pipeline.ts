@@ -36,6 +36,9 @@ interface IndexEntry {
   chains: number
   residues: number
   description: string
+  /** Antibody metadata inherited from the input entry, if present. */
+  allotype?: string
+  iggSubtype?: string
 }
 
 export interface MutationRow {
@@ -258,6 +261,17 @@ function registerIntermediateEntry(
   const entries = safeReadIndex(indexPath)
   const inputBase = path.basename(inputFile, path.extname(inputFile))
   const outBase = path.basename(outputFile)
+  // Inherit allotype / iggSubtype from the immediate input entry —
+  // identity tags propagate down the lineage chain so the user only
+  // sees them filled at the top once.
+  const inputEntry = entries.find((e: any) => e && e.file === inputFile && e.kind !== 'folder')
+  const inherited: Record<string, string> = {}
+  if (inputEntry?.allotype && typeof inputEntry.allotype === 'string' && inputEntry.allotype.trim() !== '') {
+    inherited.allotype = inputEntry.allotype
+  }
+  if (inputEntry?.iggSubtype && typeof inputEntry.iggSubtype === 'string' && inputEntry.iggSubtype.trim() !== '') {
+    inherited.iggSubtype = inputEntry.iggSubtype
+  }
   entries.push({
     id: outputFile,
     file: outputFile,
@@ -268,6 +282,7 @@ function registerIntermediateEntry(
     chains: 0,
     residues: 0,
     description: `DVBFixer ${command} · ${new Date().toLocaleString()} · ${outBase}`,
+    ...inherited,
   })
   writeIndex(indexPath, entries)
 }
@@ -375,6 +390,25 @@ export async function runEngineerPipeline(p: PipelineInput): Promise<void> {
   // Final step done — write the rich engineer entry.
   const finalRel = currentInputRel
   const nameTags = p.mutationRows.map(r => r.mutation_name).join(' + ')
+
+  // Inherit antibody metadata from the input entry. We mostly carry
+  // forward whichever fields are user-editable identity tags — allotype
+  // and iggSubtype don't change as a result of running prepare /
+  // minimize / convert / glycam pipelines, so inheriting them by
+  // default saves the user from re-entering them in the Info panel on
+  // every engineered variant. If the input has neither set, the output
+  // simply lacks them (the Info panel will show the empty fields and
+  // the user can fill in if they want).
+  const allEntries = safeReadIndex(indexPath)
+  const inputEntry = allEntries.find((e: any) => e && e.file === p.inputFile && e.kind !== 'folder')
+  const inherited: Partial<IndexEntry> = {}
+  if (inputEntry?.allotype && typeof inputEntry.allotype === 'string' && inputEntry.allotype.trim() !== '') {
+    inherited.allotype = inputEntry.allotype
+  }
+  if (inputEntry?.iggSubtype && typeof inputEntry.iggSubtype === 'string' && inputEntry.iggSubtype.trim() !== '') {
+    inherited.iggSubtype = inputEntry.iggSubtype
+  }
+
   const entry: IndexEntry = {
     id: finalRel,
     file: finalRel,
@@ -390,8 +424,8 @@ export async function runEngineerPipeline(p: PipelineInput): Promise<void> {
     chains: 0,
     residues: 0,
     description: `Antibody engineer · ${p.hasGlycan ? 'glycan' : 'no-glycan'} · ${p.scheme} · ${new Date().toLocaleString()}`,
+    ...inherited,
   }
-  const allEntries = safeReadIndex(indexPath)
   allEntries.push(entry)
   writeIndex(indexPath, allEntries)
 

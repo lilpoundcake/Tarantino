@@ -351,6 +351,19 @@ export function apiPlugin(): Plugin {
               }
               const relFile = path.relative(structuresDir, outFile).replace(/\\/g, '/')
               if (!entries.some(e => e.file === relFile)) {
+                // Inherit antibody-identity tags (allotype, iggSubtype)
+                // from the input entry if present. These don't change
+                // when DVBFixer renumbers / mutates / minimizes /
+                // converts the structure, so carrying them forward saves
+                // the user from re-entering them on every output.
+                const inputEntry = entries.find((e: any) => e && e.file === body.inputFile && e.kind !== 'folder')
+                const inherited: Record<string, string> = {}
+                if (inputEntry?.allotype && typeof inputEntry.allotype === 'string' && inputEntry.allotype.trim() !== '') {
+                  inherited.allotype = inputEntry.allotype
+                }
+                if (inputEntry?.iggSubtype && typeof inputEntry.iggSubtype === 'string' && inputEntry.iggSubtype.trim() !== '') {
+                  inherited.iggSubtype = inputEntry.iggSubtype
+                }
                 entries.push({
                   id: relFile,
                   file: relFile,
@@ -361,6 +374,7 @@ export function apiPlugin(): Plugin {
                   chains: 0,
                   residues: 0,
                   description: `DVBFixer ${command} · ${new Date().toLocaleString()}`,
+                  ...inherited,
                 })
                 fs.writeFileSync(indexPath, JSON.stringify(entries, null, 2))
               }
