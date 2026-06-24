@@ -524,6 +524,55 @@ table with chain pair dropdowns (water excluded). Clicking a row focuses the
 "Show Interface"), table auto-filters and shows a banner:
 `Interface: polymer chain A · 24 contacts · ↔ B (12) ↔ C (3) · [Clear]`.
 
+### Clashes Panel (`src/components/ClashesPanel.tsx`, `src/lib/clash-detection.ts`)
+
+Steric-clash detection. `computeClashes()` walks every atom pair within
+`2 · maxVdW − minOverlap` Å via `structure.lookup3d.find`, computes VdW
+overlap `(rA + rB) − distance` against a Bondi/Rowland-Taylor radius
+table, and reports pairs above the threshold. Excludes: H/D, water,
+bonded (1-2), 1-3 neighbors (sharing a bonded neighbor inside the unit),
+same-residue (rotamer/ring topology produces false-positives). Two
+tiers: `bad` (0.4–0.9 Å), `severe` (>0.9 Å) — matches PyMOL / ChimeraX /
+MolProbity convention.
+
+Panel UI:
+- Header: bad/severe count chips, severity filter (All / Bad / Severe),
+  **Group** toggle (default OFF), min-overlap numeric input,
+  Clear-highlight / Recompute icon buttons.
+- **Flat mode** (default): one row per atom-pair clash, sorted worst-first.
+- **Grouped mode**: rows collapsed by canonical `(chain,resId)` pair.
+  Each group row shows worst severity (`bad × 3` when N > 1), worst
+  overlap, residue endpoints, and atom count. Chevron expands the
+  group into indented child rows for the per-atom-pair detail.
+  Clicking a group row focuses the WORST atom-pair in the group;
+  the group stays selected whenever any of its children is the active
+  clash.
+
+Row click → `showClashAndFocus(plugin, { a, b, severity })` in
+`molstar-helpers.ts`:
+- Renders both residues as sticks via `showSticksForLoci` under tag
+  `CLASH_TAG = 'tarantino-clash'`.
+- Calls `showClashLine(plugin, a, b, severity)` which uses
+  `plugin.managers.structure.measurement.addDistance(lociA, lociB, …)`
+  to draw a **dashed line + distance label** between the two specific
+  clashing atoms — **amber** for `bad` (`0xe68a00`), **red** for
+  `severe` (`0xc62828`). The returned `selection` + `representation`
+  cell refs are tracked in a per-plugin `WeakMap<PluginUIContext,
+  string[]>` so subsequent clicks (or `clearClashSticks`) delete them
+  precisely without touching any other measurements the user might
+  add through Mol*'s own UI.
+- Camera focuses the residue-pair bounding sphere.
+
+Atom-level loci is built by a new synchronous helper `buildAtomLoci`
+(MolScript with `chain-test` + `residue-test` + `atom-test` on
+`label_asym_id` / `label_seq_id` / `label_atom_id`), mirroring the
+existing `buildResiduesLoci` pattern.
+
+`clearClashSticks` deletes both the residue-stick cells (by
+`CLASH_TAG`) and the tracked dashed-line cells. Wired into
+`useMolstarSync.clearPlugin3DState` (empty-3D-click) and `App.tsx` Esc
+handler.
+
 ### DVBFixer Panel + Backend
 
 **Frontend** (`src/components/DVBFixerPanel.tsx`): MUI Tabs (one per
@@ -940,6 +989,7 @@ src/
     StructureInfo.tsx           # Stats summary at top, metadata (Name + IgG Subtype + Allotype) + Notes, EquivalentChainsSection (auto-detect via NW + trimmed identity, manual override persisted in index.json)
     ElementsTable.tsx           # Tree, visibility toggles, row-click camera focus (sync-suppressed), "Show Interface"
     InteractionsPanel.tsx       # Computed contacts, focused-chain banner
+    ClashesPanel.tsx            # VdW-overlap clash table: severity filter, Group-by-residue toggle (expandable groups), row-click → residue sticks + severity-colored dashed clash line via measurement.addDistance
     AlignmentPanel.tsx          # Pairwise NW alignment, per-source plugin routing
     DVBFixerPanel.tsx           # MUI Tabs, form from /api/dvbfixer-spec, auto-pastes active fileName, auto-loads output on success
     MutationsPanel.tsx          # DataGrid backed by /api/mutations: multi-select IgG Subclass chips, HC/LC chain dropdown, free-form Properties column, drag-drop row reorder via @dnd-kit (SortableRow slot.row override, PointerSensor only, atomic PATCH /api/mutations/reorder), zebra rows, compressed pagination footer
@@ -958,7 +1008,8 @@ src/
     selectionStore.ts           # selected/hovered residues, _lock mechanism
 
   lib/
-    molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (label_seq_id as seqId + auth_seq_id as authSeqId + SEQRES merge + present flag)
+    molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (label_seq_id as seqId + auth_seq_id as authSeqId + SEQRES merge + present flag), buildAtomLoci + showClashLine (severity-colored dashed line via measurement.addDistance, per-plugin ref tracking)
+    clash-detection.ts          # computeClashes: VdW-overlap pairs via structure.lookup3d.find + Bondi/R&T radii; excludes H/water/bonded/1-3/same-residue; severity tiers bad (0.4–0.9 Å) / severe (>0.9 Å)
     alignment.ts                # Needleman-Wunsch + BLOSUM62 + chainToSequence + trimmedIdentity (terminal-gap-aware)
     chain-grouping.ts           # computeEquivalentChains (pairwise NW + union-find), validateGrouping, filterSequenceableChains
     antibody-references.ts      # Hardcoded UniProt CH/CL sequences (IgG1-4, κ, λ) + EU domain anchors + landmark self-check

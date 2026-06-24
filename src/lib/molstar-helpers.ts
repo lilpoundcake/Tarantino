@@ -8,6 +8,7 @@ import { Loci } from 'molstar/lib/mol-model/loci'
 import { StateSelection } from 'molstar/lib/mol-state'
 import { StateTransforms } from 'molstar/lib/mol-plugin-state/transforms'
 import { createStructureRepresentationParams } from 'molstar/lib/mol-plugin-state/helpers/structure-representation-params'
+import { Color } from 'molstar/lib/mol-util/color'
 
 export interface ResidueId {
   chainId: string
@@ -82,6 +83,30 @@ export function buildResiduesLoci(plugin: PluginUIContext, residues: ResidueId[]
   const structure = getFirstStructure(plugin)
   if (!structure) return null
   return toLoci(buildResidueExpression(residues), structure)
+}
+
+/**
+ * Synchronously build a Loci that contains exactly one atom (the named
+ * atom inside the given chain+seqId residue). Used by the Clashes panel
+ * to draw a dashed line between the two specific clashing atoms.
+ */
+export function buildAtomLoci(
+  plugin: PluginUIContext,
+  chainId: string,
+  seqId: number,
+  atomName: string,
+): StructureElement.Loci | null {
+  const structure = getFirstStructure(plugin)
+  if (!structure) return null
+  const expression = MS.struct.generator.atomGroups({
+    'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_asym_id(), chainId]),
+    'residue-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_seq_id(), seqId]),
+    'atom-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_atom_id(), atomName]),
+  })
+  const compiled = compile<StructureSelection>(expression)
+  const selection = compiled(new QueryContext(structure))
+  const loci = StructureSelection.toLociWithSourceUnits(selection)
+  return StructureElement.Loci.is(loci) ? loci : null
 }
 
 export function selectResiduesInViewer(
@@ -614,6 +639,109 @@ export async function showSurroundingsAndFocus(
 /** Clear the "selection + surroundings" sticks (e.g. on empty-3D-click / Esc). */
 export async function clearSurroundings(plugin: PluginUIContext) {
   await deleteCellsByTag(plugin, SURROUNDINGS_TAG)
+}
+
+const CLASH_TAG = 'tarantino-clash'
+
+/** Severity-tier colors for clash dashed lines + labels. */
+const CLASH_COLOR_BAD = Color(0xe68a00)
+const CLASH_COLOR_SEVERE = Color(0xc62828)
+
+/** Per-plugin refs of the currently-drawn clash dashed line cells, so
+ *  the next showClashAndFocus / clearClashSticks call can delete them
+ *  precisely without disturbing any other measurements the user has
+ *  added through Mol*'s own UI. */
+const clashLineRefs = new WeakMap<PluginUIContext, string[]>()
+
+async function deleteClashLineCells(plugin: PluginUIContext) {
+  const refs = clashLineRefs.get(plugin)
+  if (!refs || refs.length === 0) return
+  clashLineRefs.delete(plugin)
+  const builder = plugin.state.data.build()
+  for (const ref of refs) {
+    if (plugin.state.data.cells.has(ref)) builder.delete(ref)
+  }
+  await plugin.runTask(plugin.state.data.updateTree(builder))
+}
+
+export interface ClashAtomEndpoint {
+  chainId: string
+  seqId: number
+  atomName: string
+}
+
+/**
+ * Draw a dashed line + distance label between the two clashing atoms,
+ * colored by severity (amber for bad, red for severe). Replaces any
+ * previously-drawn clash line on this plugin.
+ */
+export async function showClashLine(
+  plugin: PluginUIContext,
+  a: ClashAtomEndpoint,
+  b: ClashAtomEndpoint,
+  severity: 'bad' | 'severe',
+) {
+  await deleteClashLineCells(plugin)
+  const lociA = buildAtomLoci(plugin, a.chainId, a.seqId, a.atomName)
+  const lociB = buildAtomLoci(plugin, b.chainId, b.seqId, b.atomName)
+  if (!lociA || !lociB || Loci.isEmpty(lociA) || Loci.isEmpty(lociB)) return
+  const color = severity === 'severe' ? CLASH_COLOR_SEVERE : CLASH_COLOR_BAD
+  const result = await plugin.managers.structure.measurement.addDistance(lociA, lociB, {
+    visualParams: {
+      linesColor: color,
+      linesSize: 0.15,
+      dashLength: 0.25,
+      textColor: color,
+      textSize: 0.6,
+    },
+  })
+  if (!result) return
+  const refs: string[] = []
+  if (result.selection?.ref) refs.push(result.selection.ref)
+  if (result.representation?.ref) refs.push(result.representation.ref)
+  if (refs.length) clashLineRefs.set(plugin, refs)
+}
+
+/**
+ * Show the two residues involved in a steric clash as solid sticks,
+ * draw a severity-colored dashed line between the two clashing atoms,
+ * and focus the camera on the pair. Subsequent calls REPLACE the
+ * previous clash highlight (one clash visible at a time — the
+ * "last clicked" requirement).
+ */
+export async function showClashAndFocus(
+  plugin: PluginUIContext,
+  pair: {
+    a: ClashAtomEndpoint
+    b: ClashAtomEndpoint
+    severity: 'bad' | 'severe'
+  },
+) {
+  const structure = getFirstStructure(plugin)
+  if (!structure) return
+  const residues: ResidueId[] = [
+    { chainId: pair.a.chainId, seqId: pair.a.seqId },
+    { chainId: pair.b.chainId, seqId: pair.b.seqId },
+  ]
+  const expression = buildResidueExpression(residues)
+  const loci = toLoci(expression, structure)
+  if (Loci.isEmpty(loci)) return
+  if (plugin.canvas3d) {
+    const cam = plugin.canvas3d.props.camera
+    if (!cam.manualReset) plugin.canvas3d.setProps({ camera: { ...cam, manualReset: true } })
+  }
+  const sphere = Loci.getBoundingSphere(loci)
+  if (sphere) plugin.managers.camera.focusSphere(sphere, { durationMs: 400 })
+  showSticksForLoci(plugin, loci as StructureElement.Loci, CLASH_TAG, 'Clash')
+    .catch(err => console.warn('[showClashAndFocus] sticks failed:', err))
+  showClashLine(plugin, pair.a, pair.b, pair.severity)
+    .catch(err => console.warn('[showClashAndFocus] line failed:', err))
+}
+
+/** Clear the clash-highlight sticks AND the dashed clash line. */
+export async function clearClashSticks(plugin: PluginUIContext) {
+  await deleteCellsByTag(plugin, CLASH_TAG)
+  await deleteClashLineCells(plugin)
 }
 
 /**

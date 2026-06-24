@@ -15,6 +15,7 @@ import ViewInArIcon from '@mui/icons-material/ViewInAr'
 import TextSnippetIcon from '@mui/icons-material/TextSnippet'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import HubIcon from '@mui/icons-material/Hub'
+import WarningIcon from '@mui/icons-material/Warning'
 import FolderIcon from '@mui/icons-material/Folder'
 import InfoIcon from '@mui/icons-material/Info'
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
@@ -33,6 +34,7 @@ import { StructureLibrary } from './components/StructureLibrary'
 import { StructureInfo } from './components/StructureInfo'
 import { ElementsTable } from './components/ElementsTable'
 import { InteractionsPanel } from './components/InteractionsPanel'
+import { ClashesPanel } from './components/ClashesPanel'
 import { AlignmentPanel } from './components/AlignmentPanel'
 import { DVBFixerPanel } from './components/DVBFixerPanel'
 import { MutationsPanel } from './components/MutationsPanel'
@@ -50,6 +52,7 @@ const PANEL_TYPES = [
   { component: 'sequence', name: 'Sequence', icon: <TextSnippetIcon sx={{ fontSize: 16 }} /> },
   { component: 'elements', name: 'Elements', icon: <ListAltIcon sx={{ fontSize: 16 }} /> },
   { component: 'interactions', name: 'Interactions', icon: <HubIcon sx={{ fontSize: 16 }} /> },
+  { component: 'clashes', name: 'Clashes', icon: <WarningIcon sx={{ fontSize: 16 }} /> },
   { component: 'alignment', name: 'Alignment', icon: <CompareArrowsIcon sx={{ fontSize: 16 }} /> },
   { component: 'dvbfixer', name: 'DVBFixer', icon: <BuildIcon sx={{ fontSize: 16 }} /> },
   { component: 'antibody-engineer', name: 'Antibody Engineer', icon: <BiotechIcon sx={{ fontSize: 16 }} /> },
@@ -169,6 +172,7 @@ function App() { // @dsp obj-a1000002
             m.clearInterfaceFocus(plugin).catch(() => {})
             m.clearSelectionSticks(plugin).catch(() => {})
             m.clearSurroundings(plugin).catch(() => {})
+            m.clearClashSticks(plugin).catch(() => {})
           }).catch(() => {})
           useStructureStore.getState().setFocusedChain(null)
         }
@@ -187,6 +191,7 @@ function App() { // @dsp obj-a1000002
       case 'info': return <StructureInfo />
       case 'elements': return <ElementsTable />
       case 'interactions': return <InteractionsPanel />
+      case 'clashes': return <ClashesPanel />
       case 'alignment': return <AlignmentPanel />
       case 'dvbfixer': return <DVBFixerPanel />
       case 'antibody-engineer': return <AntibodyEngineerPanel />
