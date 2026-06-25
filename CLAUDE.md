@@ -658,8 +658,8 @@ PDB.
 **Spec format** (`server/dvbfixer-spec.ts`):
 - `FlagDef.type`: `'bool' | 'number' | 'text' | 'select'`
 - `FlagDef.repeatable: true` — comma-split UI input becomes `--flag v1 --flag v2 --flag v3` (used by `--mutate`).
-- `FlagDef.multi: true` — whitespace-split UI input becomes a single `--flag v1 v2 v3` (argparse `nargs='+'`, used by `--ff`).
-- `--platform` choices: `['', 'CPU', 'CUDA', 'OpenCL', 'Reference']`. Empty string is omitted entirely so DVBFixer auto-picks.
+- `FlagDef.multi: true` — value is whitespace-split and emitted as a single `--flag v1 v2 v3` (argparse `nargs='+'`). Works with both `type: 'text'` and `type: 'select'`; the latter lets a dropdown preset like `"amber19/protein.ff19SB.xml amber19/tip3p.xml"` resolve to the right multi-arg CLI form. Used by `--ff` (minimize + protonate).
+- Empty string in any `select`'s `options` is preserved as the "default" choice and the backend (`api-plugin.ts:202`) drops empty values before arg-building, so DVBFixer's built-in defaults apply.
 
 ### Mutations Panel + PostgreSQL
 
@@ -1020,7 +1020,7 @@ src/
 server/
   api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/{star,meta,folder,move}, /api/antibody-engineer/run (SSE), /api/status. Exports runDvbfixer + getPg + writeSSEHeaders + sseSend for reuse.
   antibody-pipeline.ts          # Multi-step DVBFixer orchestrator: expandMutations, validateNoDuplicateTargets, pipelineSteps (glycan-7 vs no-glycan-5), engineerChecksum dedup, runEngineerPipeline (intermediate + final index.json entries, _engineer_failed/ rollback)
-  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/convert (was `glycam` in older DVBFixer). renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho. convert exposes --to-amber (default direction; PDB/CHARMM → GLYCAM + AMBER) + --to-charmm (mutually exclusive; GLYCAM/AMBER → CHARMM) + --no-roh.
+  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/convert (was `glycam` in older DVBFixer). renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho. convert exposes --to-amber + --to-charmm + --no-roh. minimize + protonate `--ff` is a select-multi dropdown of OpenMM bundles (AMBER19/AMBER14/GLYCAM/CHARMM36 presets, empty = DVBFixer auto-pick). prepare exposes --no-infer-conect; protonate exposes --protassign. Removed from UI: model --keep-workdir, minimize --dat/--padding/--platform, protonate --cys-disulfide-pka (still valid on the CLI, just hidden from the panel).
 
 scripts/
   dev.mjs                       # Smart launcher: auto docker postgres → vite
