@@ -130,6 +130,7 @@ const layoutJson: IJsonModel = {
                 children: [
                   { type: 'tab', name: 'Elements', component: 'elements' },
                   { type: 'tab', name: 'Interactions', component: 'interactions' },
+                  { type: 'tab', name: 'Clashes', component: 'clashes' },
                 ],
               },
             ],

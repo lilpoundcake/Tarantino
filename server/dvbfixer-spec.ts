@@ -145,7 +145,7 @@ export const COMMANDS: CommandDef[] = [
     flags: [
       { flag: '--ph', label: 'Target pH', type: 'number', default: 7.0, step: 0.1, min: 0, max: 14 },
       { flag: '--his-default', label: 'Default neutral HIS tautomer', type: 'select', default: 'HIE', options: ['HIE', 'HID'] },
-      { flag: '--protassign', label: 'PROTASSIGN side-chain flips', type: 'bool', help: 'Run external PROTASSIGN to flip HIS, ASN, and GLN side chains for optimal H-bond geometry before assigning protonation states.' },
+      { flag: '--protassign', label: 'PROTASSIGN side-chain flips', type: 'bool', default: true, help: 'Run external PROTASSIGN to flip HIS, ASN, and GLN side chains for optimal H-bond geometry before assigning protonation states.' },
       { flag: '--no-hydrogens', label: 'Only rename, skip H addition', type: 'bool' },
       {
         flag: '--ff',

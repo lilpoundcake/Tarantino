@@ -89,7 +89,7 @@ same tabset, the first tab is the active one):
 - Left column: Library, then (Info | **Settings**).
 - Right column (main viewer): (3D Structure | **DVBFixer** | **Antibody
   Engineer** | **Mutations**), with (Sequence | **Alignment**) and
-  (Elements | Interactions) tabsets below.
+  (Elements | Interactions | Clashes) tabsets below.
 
 Every tabset has a "+" button (`onRenderTabSet`) that opens a MUI Menu
 listing: 3D Structure, 3D Structure (B), Sequence, Elements, Interactions,
@@ -1020,7 +1020,7 @@ src/
 server/
   api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/{star,meta,folder,move}, /api/antibody-engineer/run (SSE), /api/status. Exports runDvbfixer + getPg + writeSSEHeaders + sseSend for reuse.
   antibody-pipeline.ts          # Multi-step DVBFixer orchestrator: expandMutations, validateNoDuplicateTargets, pipelineSteps (glycan-7 vs no-glycan-5), engineerChecksum dedup, runEngineerPipeline (intermediate + final index.json entries, _engineer_failed/ rollback)
-  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/convert (was `glycam` in older DVBFixer). renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho. convert exposes --to-amber + --to-charmm + --no-roh. minimize + protonate `--ff` is a select-multi dropdown of OpenMM bundles (AMBER19/AMBER14/GLYCAM/CHARMM36 presets, empty = DVBFixer auto-pick). prepare exposes --no-infer-conect; protonate exposes --protassign. Removed from UI: model --keep-workdir, minimize --dat/--padding/--platform, protonate --cys-disulfide-pka (still valid on the CLI, just hidden from the panel).
+  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/convert (was `glycam` in older DVBFixer). renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho. convert exposes --to-amber + --to-charmm + --no-roh. minimize + protonate `--ff` is a select-multi dropdown of OpenMM bundles (AMBER19/AMBER14/GLYCAM/CHARMM36 presets, empty = DVBFixer auto-pick). prepare exposes --no-infer-conect; protonate exposes --protassign (default ON). Removed from UI: model --keep-workdir, minimize --dat/--padding/--platform, protonate --cys-disulfide-pka (still valid on the CLI, just hidden from the panel).
 
 scripts/
   dev.mjs                       # Smart launcher: auto docker postgres → vite
