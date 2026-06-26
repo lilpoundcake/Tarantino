@@ -190,7 +190,7 @@ export function pipelineSteps(
       { command: 'prepare',   extraArgs: mutateFlags },                          // step 2 infers CONECTs (canonical)
       { command: 'convert',   extraArgs: [...skipInfer] },                       // GLYCAM form (no --to-charmm)
       { command: 'minimize',  extraArgs: ['--no-solvent', ...skipInfer] },
-      { command: 'protonate', extraArgs: ['--protassign'] },
+      { command: 'protonate', extraArgs: [] },
       { command: 'minimize',  extraArgs: ['--no-solvent', ...skipInfer] },
       { command: 'convert',   extraArgs: ['--to-charmm', ...skipInfer] },
     ]

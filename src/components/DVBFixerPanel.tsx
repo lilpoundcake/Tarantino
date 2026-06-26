@@ -62,6 +62,121 @@ interface RunResult {
   exitCode: number
 }
 
+/**
+ * Multiline text input with an inline overlay that colors SEQRES-only
+ * residues greyed + italic — matches the Sequence panel's missing-residue
+ * style. Used by the DVBFixer model tab's per-chain FASTA boxes.
+ *
+ * Underlay is a non-interactive `<div>` rendered absolutely under a
+ * transparent-text `<textarea>` (caret stays visible via caretColor).
+ * Both layers share identical font/padding/wrap rules — alignment is
+ * pixel-perfect by construction.
+ *
+ * Highlighting is gated on `value === parsedSequence`. Edit a single
+ * character → the whole box reverts to plain text so user-typed
+ * characters can never be mis-classified as "missing from structure".
+ * Re-parse → highlighting returns.
+ */
+interface HighlightedFastaInputProps {
+  value: string
+  onChange: (v: string) => void
+  label: string
+  placeholder?: string
+  parsedSequence?: string
+  presentMap?: boolean[]
+  minRows?: number
+}
+function HighlightedFastaInput({
+  value, onChange, label, placeholder,
+  parsedSequence, presentMap, minRows = 3,
+}: HighlightedFastaInputProps) {
+  const editorRef = useRef<HTMLTextAreaElement>(null)
+  const underlayRef = useRef<HTMLDivElement>(null)
+  const isHighlighted = parsedSequence !== undefined && value === parsedSequence
+  const onScroll = useCallback(() => {
+    if (underlayRef.current && editorRef.current) {
+      underlayRef.current.scrollTop = editorRef.current.scrollTop
+    }
+  }, [])
+  const FONT = 'ui-monospace, monospace'
+  const FONT_SIZE = '0.7rem'
+  const LINE_HEIGHT = 1.5
+  const PADDING = '6px 8px'
+  // Approximate height = lineHeight * fontSize * rows + vertical padding.
+  // 0.7rem ≈ 11.2px → row ≈ 16.8px; minRows=3 → ~50px content + 12px pad.
+  const contentHeight = `calc(${LINE_HEIGHT}em * ${minRows})`
+  return (
+    <Box sx={{
+      position: 'relative',
+      border: 1, borderColor: 'divider', borderRadius: 1,
+      pt: 1.25, px: 1, pb: 0.5,
+      transition: 'border-color 120ms',
+      '&:focus-within': { borderColor: 'primary.main' },
+    }}>
+      <Typography
+        variant="caption"
+        sx={{
+          position: 'absolute', top: -7, left: 8,
+          px: 0.5, bgcolor: 'background.paper',
+          fontSize: '0.65rem', color: 'text.secondary',
+          pointerEvents: 'none',
+        }}
+      >
+        {label}
+      </Typography>
+      <Box sx={{ position: 'relative', height: contentHeight }}>
+        <Box
+          ref={underlayRef}
+          aria-hidden
+          sx={{
+            position: 'absolute', inset: 0,
+            pointerEvents: 'none', overflow: 'hidden',
+            fontFamily: FONT, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT,
+            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+            padding: PADDING,
+            color: 'text.primary',
+            boxSizing: 'border-box',
+          }}
+        >
+          {isHighlighted
+            ? Array.from(value).map((ch, i) => (
+                <span
+                  key={i}
+                  style={presentMap?.[i] === false
+                    ? { color: '#b5bfcc', fontStyle: 'italic', fontWeight: 400 }
+                    : undefined}
+                >{ch}</span>
+              ))
+            : value || (
+                <span style={{ color: '#9ea7b3', fontStyle: 'italic' }}>
+                  {placeholder ?? ''}
+                </span>
+              )}
+        </Box>
+        <textarea
+          ref={editorRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onScroll={onScroll}
+          spellCheck={false}
+          style={{
+            position: 'absolute', inset: 0,
+            width: '100%', height: '100%',
+            border: 'none', outline: 'none', resize: 'none',
+            background: 'transparent', color: 'transparent',
+            caretColor: 'currentColor',
+            fontFamily: FONT, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT,
+            padding: PADDING,
+            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+            boxSizing: 'border-box',
+            margin: 0,
+          }}
+        />
+      </Box>
+    </Box>
+  )
+}
+
 export function DVBFixerPanel() {
   const [commands, setCommands] = useState<CommandDef[]>([])
   const [tabIdx, setTabIdx] = useState(0)
@@ -170,22 +285,41 @@ export function DVBFixerPanel() {
 
   // Map<chainId, sequence string>. Edited by the user.
   const [fastaByChain, setFastaByChain] = useState<Record<string, string>>({})
+  // Snapshot of the LAST Parse from PDB output per chain, used to gate
+  // inline missing-residue highlighting. As long as the textarea value
+  // equals this snapshot, the underlay renders per-character colors;
+  // once the user edits, the box reverts to plain text so user-typed
+  // characters don't get mis-classified as "missing".
+  const [parsedSequenceByChain, setParsedSequenceByChain] = useState<Record<string, string>>({})
+  const [presentMapByChain, setPresentMapByChain] = useState<Record<string, boolean[]>>({})
 
   // Reset when the user switches inputs (different structure → different chains).
   useEffect(() => {
     setFastaByChain({})
+    setParsedSequenceByChain({})
+    setPresentMapByChain({})
   }, [inputFile])
 
   const parseFromPdb = useCallback(() => {
     if (seqChains.length === 0) return
     const next: Record<string, string> = {}
+    const parsed: Record<string, string> = {}
+    const present: Record<string, boolean[]> = {}
     for (const c of seqChains) {
       // Use the full SEQRES-aware sequence (chainToSequence maps every
       // compId to a 1-letter code; SEQRES-only residues get included
       // since they're already in c.residues with present:false).
-      next[c.id] = chainToSequence(c.residues)
+      const seq = chainToSequence(c.residues)
+      next[c.id] = seq
+      parsed[c.id] = seq
+      // Treat undefined as present (only mark explicit `false` as missing);
+      // filterSequenceableChains widens the residue type via its generic,
+      // so TS can't see ChainData's `present: boolean` guarantee.
+      present[c.id] = c.residues.map(r => (r as { present?: boolean }).present !== false)
     }
     setFastaByChain(next)
+    setParsedSequenceByChain(parsed)
+    setPresentMapByChain(present)
   }, [seqChains])
 
   const setChainFasta = useCallback((chainId: string, value: string) => {
@@ -387,7 +521,11 @@ export function DVBFixerPanel() {
                       <Button
                         size="small"
                         variant="text"
-                        onClick={() => setFastaByChain({})}
+                        onClick={() => {
+                          setFastaByChain({})
+                          setParsedSequenceByChain({})
+                          setPresentMapByChain({})
+                        }}
                         disabled={Object.keys(fastaByChain).length === 0}
                       >
                         Clear
@@ -420,21 +558,15 @@ export function DVBFixerPanel() {
                       const value = fastaByChain[c.id] ?? ''
                       const len = value.replace(/\s+/g, '').length
                       return (
-                        <TextField
+                        <HighlightedFastaInput
                           key={c.id}
                           label={`Chain ${c.id}${len > 0 ? ` · ${len} aa` : ''}`}
                           value={value}
-                          onChange={(e) => setChainFasta(c.id, e.target.value)}
+                          onChange={(v) => setChainFasta(c.id, v)}
                           placeholder="Paste single-letter sequence (or click Parse from PDB)"
-                          multiline
-                          minRows={3}
-                          maxRows={8}
-                          fullWidth
-                          slotProps={{
-                            input: {
-                              sx: { fontFamily: 'ui-monospace, monospace', fontSize: '0.7rem' },
-                            },
-                          }}
+                          parsedSequence={parsedSequenceByChain[c.id]}
+                          presentMap={presentMapByChain[c.id]}
+                          minRows={4}
                         />
                       )
                     })}

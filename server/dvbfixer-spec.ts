@@ -80,6 +80,7 @@ export const COMMANDS: CommandDef[] = [
       { flag: '--fasta', label: 'FASTA file (alternative to SEQRES)', type: 'text', default: '', help: 'Path to FASTA file' },
       { flag: '--num-models', label: 'Initial models to generate (-n)', type: 'number', default: 1, step: 1, min: 1 },
       { flag: '--num-loops', label: 'Loop refinement models per initial', type: 'number', default: 2, step: 1, min: 1 },
+      { flag: '--num-output', label: 'Top-N candidates to save', type: 'number', default: 1, step: 1, min: 1, help: 'Number of top-ranked models to keep (sorted by Modeller molpdf, best first). Ceiling: num-models × num-loops. With N > 1 the outputs are named <stem>_model_1.pdb, _2.pdb, … which Tarantino currently only auto-loads the first of; the rest stay on disk for manual inspection.' },
       { flag: '--md-level', label: 'MD refinement level', type: 'select', default: 'fast', options: ['none', 'fast', 'slow', 'very_slow', 'slow_large'] },
       { flag: '--no-terminal', label: 'Skip N/C-terminal modeling', type: 'bool' },
       { flag: '--keep-water', label: 'Keep water', type: 'bool' },
@@ -145,7 +146,6 @@ export const COMMANDS: CommandDef[] = [
     flags: [
       { flag: '--ph', label: 'Target pH', type: 'number', default: 7.0, step: 0.1, min: 0, max: 14 },
       { flag: '--his-default', label: 'Default neutral HIS tautomer', type: 'select', default: 'HIE', options: ['HIE', 'HID'] },
-      { flag: '--protassign', label: 'PROTASSIGN side-chain flips', type: 'bool', default: true, help: 'Run external PROTASSIGN to flip HIS, ASN, and GLN side chains for optimal H-bond geometry before assigning protonation states.' },
       { flag: '--no-hydrogens', label: 'Only rename, skip H addition', type: 'bool' },
       {
         flag: '--ff',

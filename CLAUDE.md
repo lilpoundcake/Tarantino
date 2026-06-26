@@ -599,7 +599,7 @@ output, and resets `userPickedInputRef` so the next run's input mirrors the new
 active structure. Failures leave the viewer untouched.
 
 **Model tab — per-chain FASTA input.** The `model` sub-tab renders a
-custom section above the flag controls: one multi-line `TextField` per
+custom section above the flag controls: one multi-line input per
 polypeptide chain of the loaded primary structure (filtered via
 `filterSequenceableChains`). A **Parse from PDB** button populates every
 box via `chainToSequence(chain.residues)` from
@@ -607,6 +607,19 @@ box via `chainToSequence(chain.residues)` from
 are still included). A **Clear** button empties all boxes. The standard
 `--fasta` text field is hidden in this tab because the per-chain UI
 synthesises it automatically.
+
+**Inline missing-residue highlighting** — each per-chain box is a
+`HighlightedFastaInput` (defined at the top of `DVBFixerPanel.tsx`): a
+transparent-text `<textarea>` layered over a colored underlay `<div>`.
+Both layers share identical font / padding / wrap rules so they
+align pixel-for-pixel. After Parse from PDB, SEQRES-only residues
+render greyed `#b5bfcc` + italic + fontWeight 400 (same visual as the
+Sequence panel's missing residues). Highlighting is gated on
+`value === parsedSequenceByChain[c.id]`: edit any character and the
+whole box reverts to plain text so user-typed characters never get
+mis-classified as missing. `parsedSequenceByChain` and
+`presentMapByChain` snapshots are stored alongside `fastaByChain` and
+wiped by Clear / input-switch.
 
 On Run, `buildFastaContent()` assembles a valid FASTA string from the
 non-empty chain boxes (60-char-wrapped lines, `>{inputBase}_{chainId}`
@@ -812,9 +825,10 @@ subclasses with hinge-length gaps that can't be indexed by simple offset.
   glycan pipeline or 5-step no-glycan pipeline. Scheme passed to
   DVBFixer is **lowercased** (`'eu'` / `'kabat'`) — the CLI's
   `--scheme` choices are `seqres / kabat / chothia / imgt / martin / eu / aho`.
-  Protonate steps pass `--protassign` so PROTASSIGN (MolProbity Reduce)
-  picks HIS tautomers + ASN/GLN flips from local H-bond geometry; works
-  out of the box because DVBFixer's bundled env ships the `reduce` binary.
+  Protonate runs PROTASSIGN (MolProbity Reduce) by default — DVBFixer
+  commit `eeba73d` (June 2026) flipped `--protassign` to default ON via
+  `BooleanOptionalAction`, so the AE pipeline no longer passes the flag
+  explicitly; the behavior is identical.
   Every step AFTER `prepare` passes `--no-infer-conect` — `prepare` runs
   CONECT inference once and that bond graph is the canonical one for the
   rest of the pipeline. Re-inferring (the default since DVBFixer commit
@@ -1034,7 +1048,7 @@ src/
 server/
   api-plugin.ts                 # Vite middleware: /api/dvbfixer/*, /api/mutations, /api/library/{star,meta,folder,move}, /api/antibody-engineer/run (SSE), /api/status. Exports runDvbfixer + getPg + writeSSEHeaders + sseSend for reuse.
   antibody-pipeline.ts          # Multi-step DVBFixer orchestrator: expandMutations, validateNoDuplicateTargets, pipelineSteps (glycan-7 vs no-glycan-5), engineerChecksum dedup, runEngineerPipeline (intermediate + final index.json entries, _engineer_failed/ rollback)
-  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/convert (was `glycam` in older DVBFixer). renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho. convert exposes --to-amber + --to-charmm + --no-roh. minimize + protonate `--ff` is a select-multi dropdown of OpenMM bundles (AMBER19/AMBER14/GLYCAM/CHARMM36 presets, empty = DVBFixer auto-pick). prepare exposes --no-infer-conect; protonate exposes --protassign (default ON). Removed from UI: model --keep-workdir, minimize --dat/--padding/--platform, protonate --cys-disulfide-pka (still valid on the CLI, just hidden from the panel).
+  dvbfixer-spec.ts              # CommandDef[] for split/renumber/model/prepare/minimize/protonate/convert (was `glycam` in older DVBFixer). renumber.--scheme options: seqres/kabat/chothia/imgt/martin/eu/aho. convert exposes --to-amber + --to-charmm + --no-roh. minimize + protonate `--ff` is a select-multi dropdown of OpenMM bundles (AMBER19/AMBER14/GLYCAM/CHARMM36 presets, empty = DVBFixer auto-pick). prepare exposes --no-infer-conect. model exposes --num-output (top-N candidate save count; with N>1 the auxiliary _2.pdb/_3.pdb outputs stay on disk and Tarantino only auto-loads the first). Removed from UI: model --keep-workdir, minimize --dat/--padding/--platform, protonate --cys-disulfide-pka, protonate --protassign (DVBFixer now defaults it ON). Hidden flags are still valid on the CLI.
 
 scripts/
   dev.mjs                       # Smart launcher: auto docker postgres → vite
