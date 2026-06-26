@@ -530,10 +530,15 @@ Steric-clash detection. `computeClashes()` walks every atom pair within
 `2 · maxVdW − minOverlap` Å via `structure.lookup3d.find`, computes VdW
 overlap `(rA + rB) − distance` against a Bondi/Rowland-Taylor radius
 table, and reports pairs above the threshold. Excludes: H/D, water,
-bonded (1-2), 1-3 neighbors (sharing a bonded neighbor inside the unit),
-same-residue (rotamer/ring topology produces false-positives). Two
-tiers: `bad` (0.4–0.9 Å), `severe` (>0.9 Å) — matches PyMOL / ChimeraX /
-MolProbity convention.
+1-2 and 1-3 neighbors across the **full** bond graph (`unit.bonds` PLUS
+`structure.interUnitBonds`), and same-residue pairs (rotamer/ring
+topology produces false-positives). The `gatherNeighbors(structure,
+unit, atomIdx)` helper walks both intra and inter edges so that
+glycosidic bonds between sugar non-polymer units (C1–O 1-2 and C1–C2
+1-3 around the linkage angle would otherwise show as severe clashes)
+and inter-chain disulfides are correctly excluded. Two tiers: `bad`
+(0.4–0.9 Å), `severe` (>0.9 Å) — matches PyMOL / ChimeraX / MolProbity
+convention.
 
 Panel UI:
 - Header: bad/severe count chips, severity filter (All / Bad / Severe),
@@ -1018,7 +1023,7 @@ src/
 
   lib/
     molstar-helpers.ts          # MolScript builders, showSticksForLoci, extractChains (label_seq_id as seqId + auth_seq_id as authSeqId + SEQRES merge + present flag), buildAtomLoci + showClashLine (severity-colored dashed line via measurement.addDistance, per-plugin ref tracking)
-    clash-detection.ts          # computeClashes: VdW-overlap pairs via structure.lookup3d.find + Bondi/R&T radii; excludes H/water/bonded/1-3/same-residue; severity tiers bad (0.4–0.9 Å) / severe (>0.9 Å)
+    clash-detection.ts          # computeClashes: VdW-overlap pairs via structure.lookup3d.find + Bondi/R&T radii; gatherNeighbors walks both unit.bonds + structure.interUnitBonds so 1-2 / 1-3 exclusions cover glycosidic + interchain disulfide bonds; severity tiers bad (0.4–0.9 Å) / severe (>0.9 Å)
     alignment.ts                # Needleman-Wunsch + BLOSUM62 + chainToSequence + trimmedIdentity (terminal-gap-aware)
     chain-grouping.ts           # computeEquivalentChains (pairwise NW + union-find), validateGrouping, filterSequenceableChains
     antibody-references.ts      # Hardcoded UniProt CH/CL sequences (IgG1-4, κ, λ) + EU domain anchors + landmark self-check

@@ -23,7 +23,7 @@
  */
 
 import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context'
-import { StructureElement, StructureProperties as SP } from 'molstar/lib/mol-model/structure'
+import { StructureElement, StructureProperties as SP, type Structure, type Unit } from 'molstar/lib/mol-model/structure'
 
 // Bondi 1964 + Rowland & Taylor 1996 VdW radii for common elements (Å).
 // MolProbity / PyMOL use a similar set. Fallback for missing entries: 1.70 (C).
@@ -62,6 +62,63 @@ export interface ClashOptions {
   severeThreshold?: number
 }
 
+/**
+ * Collect 1-2 and 1-3 neighbors of an atom across the FULL bond graph
+ * (intra-unit `unit.bonds` + inter-unit `structure.interUnitBonds`).
+ *
+ * Returns string keys `${unitId}.${atomIdx}` so callers can match against
+ * the same key shape used for dedup. Inter-unit edges matter because:
+ *   - Glycosidic bonds between sugar non-polymer units (each sugar = its
+ *     own unit) live in interUnitBonds; the C1–O bond and the C1–C2
+ *     1-3-across-the-bridge geometry both look like severe clashes
+ *     without this exclusion.
+ *   - Inter-chain disulfides (heavy ↔ light SG–SG) likewise.
+ */
+function gatherNeighbors(
+  structure: Structure,
+  unit: Unit,
+  atomIdx: number,
+): { bonded: Set<string>; oneThree: Set<string> } {
+  const bonded = new Set<string>()
+  const oneThree = new Set<string>()
+  const selfKey = `${unit.id}.${atomIdx}`
+
+  const collectIntra = (u: Unit, idx: number, sink: Set<string>) => {
+    const b: any = (u as any).bonds
+    if (!b?.offset || !b?.b) return
+    const start = b.offset[idx]
+    const end = b.offset[idx + 1]
+    for (let k = start; k < end; k++) sink.add(`${u.id}.${b.b[k]}`)
+  }
+  const collectInter = (u: Unit, idx: number, sink: Set<string>) => {
+    const edgeIndices = structure.interUnitBonds.getEdgeIndices(idx as any, u.id)
+    if (!edgeIndices) return
+    for (let i = 0; i < edgeIndices.length; i++) {
+      const e: any = (structure.interUnitBonds as any).edges[edgeIndices[i]]
+      if (e.unitA === u.id && e.indexA === idx) sink.add(`${e.unitB}.${e.indexB}`)
+      else sink.add(`${e.unitA}.${e.indexA}`)
+    }
+  }
+
+  // 1-2 neighbors
+  collectIntra(unit, atomIdx, bonded)
+  collectInter(unit, atomIdx, bonded)
+
+  // 1-3 neighbors: for each 1-2 neighbor, gather ITS 1-2 neighbors.
+  for (const nKey of bonded) {
+    const dot = nKey.indexOf('.')
+    const nUnitId = Number(nKey.slice(0, dot))
+    const nIdx = Number(nKey.slice(dot + 1))
+    const nUnit = structure.unitMap.get(nUnitId as any) as Unit | undefined
+    if (!nUnit) continue
+    collectIntra(nUnit, nIdx, oneThree)
+    collectInter(nUnit, nIdx, oneThree)
+  }
+  oneThree.delete(selfKey)
+  for (const k of bonded) oneThree.delete(k)
+  return { bonded, oneThree }
+}
+
 export function computeClashes(plugin: PluginUIContext, opts: ClashOptions = {}): Clash[] {
   const minOverlap = opts.minOverlap ?? 0.4
   const severeThreshold = opts.severeThreshold ?? 0.9
@@ -78,11 +135,6 @@ export function computeClashes(plugin: PluginUIContext, opts: ClashOptions = {})
     const elementsA = unitA.elements
     const confA = unitA.conformation
     locA.unit = unitA
-    // IntraUnitBonds — atomic units have a bond graph; coarse / branched
-    // units may not. Guard defensively.
-    const bondsA: any = (unitA as any).bonds
-    const offset: ArrayLike<number> | undefined = bondsA?.offset
-    const bArr: ArrayLike<number> | undefined = bondsA?.b
 
     for (let aIdx = 0; aIdx < elementsA.length; aIdx++) {
       const eA: any = elementsA[aIdx]
@@ -94,24 +146,10 @@ export function computeClashes(plugin: PluginUIContext, opts: ClashOptions = {})
       const rA = VDW[symA] ?? DEFAULT_VDW
       const px = confA.x(eA), py = confA.y(eA), pz = confA.z(eA)
 
-      // Precompute bonded + 1-3 sets for this atom (intra-unit).
-      let bonded: Set<number> | null = null
-      let oneThree: Set<number> | null = null
-      if (offset && bArr) {
-        bonded = new Set()
-        oneThree = new Set()
-        const start = offset[aIdx]
-        const end = offset[aIdx + 1]
-        for (let k = start; k < end; k++) {
-          const cIdx = bArr[k]
-          bonded.add(cIdx)
-          const cStart = offset[cIdx]
-          const cEnd = offset[cIdx + 1]
-          for (let kk = cStart; kk < cEnd; kk++) {
-            oneThree.add(bArr[kk])
-          }
-        }
-      }
+      // Bonded + 1-3 neighbors across the FULL bond graph (intra + inter).
+      // Keyed by `${unitId}.${atomIdx}` so we can match candidate pairs
+      // regardless of which unit they live in.
+      const { bonded, oneThree } = gatherNeighbors(structure, unitA, aIdx)
 
       const result = structure.lookup3d.find(px, py, pz, searchR)
       for (let i = 0; i < result.count; i++) {
@@ -125,10 +163,12 @@ export function computeClashes(plugin: PluginUIContext, opts: ClashOptions = {})
         const pairKey = keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`
         if (seen.has(pairKey)) continue
 
-        // Intra-unit exclusions: bonded, 1-3, same residue
+        // Exclude 1-2 / 1-3 across the full graph (handles glycosidic bonds,
+        // inter-chain disulfides, and intra-unit standard bonds uniformly).
+        if (bonded.has(keyB) || oneThree.has(keyB)) { seen.add(pairKey); continue }
+
+        // Same-residue → skip (ring topology + rotamer pairs look like clashes).
         if (unitA === unitB) {
-          if (bonded?.has(bIdx) || oneThree?.has(bIdx)) { seen.add(pairKey); continue }
-          // Same-residue → skip (ring topology + rotamer pairs look like clashes)
           const residueIdx = (unitA as any).residueIndex as ArrayLike<number> | undefined
           if (residueIdx) {
             const eAFull = elementsA[aIdx]
