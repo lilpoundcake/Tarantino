@@ -807,6 +807,15 @@ subclasses with hinge-length gaps that can't be indexed by simple offset.
   glycan pipeline or 5-step no-glycan pipeline. Scheme passed to
   DVBFixer is **lowercased** (`'eu'` / `'kabat'`) — the CLI's
   `--scheme` choices are `seqres / kabat / chothia / imgt / martin / eu / aho`.
+  Protonate steps pass `--protassign` so PROTASSIGN (MolProbity Reduce)
+  picks HIS tautomers + ASN/GLN flips from local H-bond geometry; works
+  out of the box because DVBFixer's bundled env ships the `reduce` binary.
+  Every step AFTER `prepare` passes `--no-infer-conect` — `prepare` runs
+  CONECT inference once and that bond graph is the canonical one for the
+  rest of the pipeline. Re-inferring (the default since DVBFixer commit
+  aa52dbf, June 2026) on protonate's output produced drift that broke
+  AMBER14+GLYCAM template matching on glycosylated NLN/OLS/OLT residues
+  in the second `minimize` step; pinning to prepare's CONECTs fixes it.
 - `runEngineerPipeline(p)` is the main loop. Each step gets its own
   `structures/dvb_<command>_<ts>_s<N>/` directory (the `_s<N>` suffix
   prevents collisions when the same command appears twice, e.g. two

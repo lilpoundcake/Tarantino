@@ -176,25 +176,32 @@ export function pipelineSteps(
   // DVBFixer's --scheme expects lowercase tokens. Frontend uses
   // capitalised labels (EU / Kabat); translate here.
   const schemeArg = scheme.toLowerCase()
+  // After `prepare` runs CONECT inference once (step 2), every downstream
+  // step trusts those CONECTs verbatim. Re-inferring at every step
+  // (DVBFixer commit aa52dbf, June 2026) produces drift — protonate adds H,
+  // then minimize re-infers H-X bonds — that broke AMBER14+GLYCAM template
+  // matching on glycosylated residues (NLN/OLS/OLT) in the post-protonate
+  // minimize step.
+  const skipInfer = ['--no-infer-conect']
   if (hasGlycan) {
-    // 7-step glycan pipeline (per the user's spec):
+    // 7-step glycan pipeline:
     return [
-      { command: 'renumber', extraArgs: ['--scheme', schemeArg] },
-      { command: 'prepare',  extraArgs: mutateFlags },
-      { command: 'convert',  extraArgs: [] },                       // no --to-charmm (GLYCAM form)
-      { command: 'minimize', extraArgs: ['--no-solvent'] },
-      { command: 'protonate', extraArgs: [] },
-      { command: 'minimize', extraArgs: ['--no-solvent'] },
-      { command: 'convert',  extraArgs: ['--to-charmm'] },
+      { command: 'renumber',  extraArgs: ['--scheme', schemeArg] },
+      { command: 'prepare',   extraArgs: mutateFlags },                          // step 2 infers CONECTs (canonical)
+      { command: 'convert',   extraArgs: [...skipInfer] },                       // GLYCAM form (no --to-charmm)
+      { command: 'minimize',  extraArgs: ['--no-solvent', ...skipInfer] },
+      { command: 'protonate', extraArgs: ['--protassign'] },
+      { command: 'minimize',  extraArgs: ['--no-solvent', ...skipInfer] },
+      { command: 'convert',   extraArgs: ['--to-charmm', ...skipInfer] },
     ]
   }
-  // 5-step no-glycan pipeline (per the user's confirmation):
+  // 5-step no-glycan pipeline:
   return [
-    { command: 'renumber', extraArgs: ['--scheme', schemeArg] },
-    { command: 'prepare',  extraArgs: mutateFlags },
-    { command: 'minimize', extraArgs: ['--no-solvent'] },
-    { command: 'protonate', extraArgs: [] },
-    { command: 'minimize', extraArgs: ['--no-solvent'] },
+    { command: 'renumber',  extraArgs: ['--scheme', schemeArg] },
+    { command: 'prepare',   extraArgs: mutateFlags },
+    { command: 'minimize',  extraArgs: ['--no-solvent', ...skipInfer] },
+    { command: 'protonate', extraArgs: ['--protassign'] },
+    { command: 'minimize',  extraArgs: ['--no-solvent', ...skipInfer] },
   ]
 }
 
