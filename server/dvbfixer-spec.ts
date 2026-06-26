@@ -128,7 +128,7 @@ export const COMMANDS: CommandDef[] = [
       { flag: '--max-iter', label: 'Max iterations per phase', type: 'number', default: 1000, step: 100, min: 1 },
       { flag: '--rebuild-h', label: 'Strip & re-add hydrogens', type: 'bool' },
       { flag: '--strip-heterogens', label: 'Protein-only (with coords splicing)', type: 'bool' },
-      { flag: '--no-solvent', label: 'Vacuum minimization (no solvent)', type: 'bool' },
+      { flag: '--no-solvent', label: 'Vacuum minimization (no solvent)', type: 'bool', default: true },
       { flag: '--xtb-refine', label: 'Post-refine with xtb GFN-FF', type: 'bool' },
       { flag: '--xtb-cycles', label: 'Max xtb cycles', type: 'number', default: 200, step: 10, min: 1, help: 'Only used if --xtb-refine is on' },
       { flag: '--obminimize-refine', label: 'Post-refine with OpenBabel obminimize', type: 'bool' },
